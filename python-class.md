@@ -6,6 +6,3 @@ We will be posting code at our [github repository](https://github.com/orenlivne/
 ### Topics
 1. Python, installation
 2. Object-Oriented Programming (OOP)
-
-
-
