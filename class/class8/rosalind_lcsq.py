@@ -28,7 +28,8 @@ def lcsq(x, y):
             else: j -= 1
     return s
 
-def lcsq2(x, y):  # Integrated DP+backtracking, O(mn) time, O(min(m,n)) storage
+def lcsq2(x, y):
+    '''Integrated DP+backtracking, O(mn) time, O(min(m,n)) storage.'''
     m, n = len(x), len(y)
     if m < n: return lcsq2(y, x)
     c_old, c, s_old, s = [0] * (n + 1), [0] * (n + 1), [''] * (n + 1), [''] * (n + 1)
