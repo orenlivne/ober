@@ -26,7 +26,7 @@ def lcsq(x, y):
         else:
             if c[i - 1, j] > c[i, j - 1]: i -= 1
             else: j -= 1
-    return s
+    return s    
 
 def lcsq2(x, y):
     '''Integrated DP+backtracking, O(mn) time, O(min(m,n)) storage.'''
