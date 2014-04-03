@@ -1,0 +1,2 @@
+cd $1
+rsync -aRvu --include '*.gxn' --exclude '*.log' --exclude 'hutt*' --exclude 'map*' ./ $2:imputed/

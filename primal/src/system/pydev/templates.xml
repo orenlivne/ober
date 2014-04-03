@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><templates><template autoinsert="false" context="org.python.pydev.editor.templates.python.modules" deleted="false" description="Module: Empty" enabled="true" id="org.python.pydev.editor.templates.python.module.empty" name="&lt;Empty&gt;">'''
+============================================================
+TBA
+
+Created on ${date}
+@author: Oren Livne &lt;livne@uchicago.edu&gt;
+============================================================
+'''</template></templates>

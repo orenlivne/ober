@@ -1,0 +1,32 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Convert an id coefficient file prepared by sort-idcoef
+# to kinship coefficients.
+# 
+# Author: Oren E. Livne
+# Date:   28-JAN-2013
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 1 ]; then
+  echo "Usage: ${PROGNAME} <idcoef-file>"
+  echo ""
+  echo "Convert a kinship coefficient file prepared by sort-kinship."
+  echo "to kinship coefficients. First row: list ids. Rows 2-end: f[id1,id2]"
+  echo "for all id1,id2 (sorted by columns)."
+  exit $E_BADARGS
+fi
+
+# Calculate the number of samples n in input file
+y=`wc -l $1 | cut -d ' ' -f 1`
+n=`echo "scale=0; sqrt ($y)" | bc -l`
+
+# Output list of IDs from first n rows in input file
+head -$n $1 | awk {'printf "%d ", $2'}
+printf "\n"
+
+# Calculate and output kinships for all id1,id2 pairs
+awk {'printf "%.16e\n", $3'} $1

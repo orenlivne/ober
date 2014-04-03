@@ -1,0 +1,27 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Override imputed genotypes by genotypes read from a PLINK BED file.
+# For instance, this could be the Affymetrix SNPs.
+#
+# Input parameters: plink_file - PLINK data set prefix
+#-----------------------------------------------------------------
+#PBS -l walltime=10:00:00
+#PBS -l mppwidth=24
+#PBS -N override_imputed_by_plink
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+#for chrom in `seq 1 22`; do
+#    aprun -n 1 -N 1 -d 24 ${OBER_CODE}/impute/batch/cgi/override-imputed-by-plink.sh ${plink_file} ${chrom} &
+#done
+#wait
+
+aprun -n 1 -N 1 -d 24 ${OBER_CODE}/impute/batch/cgi/override-imputed-by-plink.sh ${plink_file}

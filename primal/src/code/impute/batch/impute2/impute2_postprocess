@@ -1,0 +1,61 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# IMPUTE2 post-processing after pedigree-based imputation.
+#
+# Author: Oren E. Livne
+# Date:   08-OCT-2013
+#--------------------------------------------------------------------
+
+if [[ $# -ne 4 ]]; then
+    echo -e "Usage: `basename $0` <work-dir> <imputed-dir> <chrom> <out-dir>"
+    exit ${E_BADARGS}
+fi
+work_dir="$1"
+imputed_dir="$2"
+chrom="$3"
+out_dir="$4"
+
+# Constants
+suffix="haps"
+file_types="stats.${suffix} impute2.${suffix}.dose"
+work_in_prefix="run_impute2"                 # IMPUTE2 run file prefix
+imputed_tfam="${OBER}/testdata/pedigree/hutterites.imputed.tfam"
+
+in_prefix="${imputed_dir}/imputed_cgi"
+count_dir="${OBER_OUT}/impute_cgi/count2"
+out_prefix="${out_dir}/imputed_cgi"
+work_chr="${work_dir}/chr${chrom}/${work_in_prefix}"
+temp_dir="${work_chr}/temp"
+work_out_prefix="${work_chr}/impute2.chr${chrom}" # IMPUTE2 Output file prefix
+plink_file="${work_out_prefix}.impute2.${suffix}" # Final IMPUTE2 PLINK file name
+
+# Initialize, clean
+#mkdir -p ${out_dir}
+#rm -f ${out_prefix}.chr${chrom}*
+
+#----------------------------------------------------------------
+# Merge impute2 output chunks and stats into single files
+#----------------------------------------------------------------
+for t in ${file_types}; do
+    cat `ls -1 ${work_chr}/node-*/${work_in_prefix}*.${t} | sort | paste -sd' '` > ${work_out_prefix}.${t}
+done
+
+if [ ! -f ${plink_file}.tped ]; then
+    # Filter SNPs to high quality. This is encoded in the first column of the dose file.
+    awk -v chrom=${chrom} 'BEGIN { g["0"]="1 1"; g["1"] = "1 2"; g[2] = "2 2"; g["?"]="0 0"; } { if ($1) { printf "%d %s %d %d", chrom, ($2 == "---") ? $3 : $2, 0, $4; for (i = 7; i <= NF; i++) printf " %s", g[$i]; printf "\n"; } }' ${work_out_prefix}.impute2.${suffix}.dose > ${plink_file}.tped
+    rm -f ${plink_file}.tfam
+    ln -s ${imputed_tfam} ${plink_file}.tfam
+fi
+
+#rm -f ${work_out_prefix}.impute2.${suffix}.dose
+
+#----------------------------------------------------------------
+# Override imputed genotypes with impute2 genotypes
+#----------------------------------------------------------------
+bash -x ${OBER_CODE}/impute/batch/cgi/override-imputed-by-plink.sh ${in_prefix} ${out_dir} ${plink_file} ${chrom} ${temp_dir} "-k name -n 0 -t 3 -w"
+
+#----------------------------------------------------------------
+# Run genotype counting (call rates)
+#----------------------------------------------------------------
+rm -rf ${count_dir}/chr${chrom}
+${OBER_CODE}/impute/batch/cgi/count-genotypes-all ${chrom} ${chrom} "${out_prefix}" "${count_dir}"

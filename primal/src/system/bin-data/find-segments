@@ -1,0 +1,19 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Find IBD segments of a sample in a segment file
+# 
+# Author: Oren E. Livne
+# Date:   08-FEB-2013
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 1 ]; then
+  echo "Usage: ${PROGNAME} <sample-id>"
+  echo ""
+  echo "Find IBD segments of a sample in a segment list."
+  exit $E_BADARGS
+fi
+awk -v i=$1 {'if (($5 == i) || ($7 == i)) { print $0 }'}

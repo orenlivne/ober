@@ -1,0 +1,29 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# Main script to compare IBDLD segments with PRIMAL IBD segments.
+# 
+# Author: Oren E. Livne
+# Date:   19-MAR-2014
+#--------------------------------------------------------------------
+
+# Create a PRIMAL genomic IBD segment file in the standard format (all pairs, all chrs)
+#create-master-segment ${OBER_OUT}/phasing > segments.primal.std
+#cat /home/oren/ober/data/ibdld/IBD1Threshold0.9_Chr_* > segments.ibdld
+
+# Create an IBDLD genomic IBD segment file in the standard format
+for (( c=1; c<=22; c++ )); do
+    ibdld2std ${OBER_DATA}/ibdld/IBD1Threshold0.9_Chr_$c.segment | \
+        awk -v c=$c '\
+        BEGIN { offset = 1000000000 * c; } \
+        { \
+          if (c == 1) { printf "%s %s ", $1, $2; } \
+	  for (i = 3; i <= NF; i += 2) printf "%d %d ", offset+$i, offset+$(i+1); \
+	  printf "\n"; \
+        }' > ibdld.chr$c.std
+done
+paste -d' ' `for (( c=1; c<=22; c++ )); do printf "%s " ibdld.chr$c.std; done` | sed 's/\s*$//' > segments.ibdld.std
+awk '{if ($1 <= $2) { print $4 + $6 + $8 + $10 + $11;} }' ~/ober/data/hutt/hutt.id > ibdld.p_ibd
+
+# Compare Oren's, Lide's sgments
+compare_segments.py segments.ibdld.std segments.primal.std  > comparison
+paste -d' ' comparison ibdld.p_ibd > comparison.aug

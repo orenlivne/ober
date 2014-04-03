@@ -1,0 +1,20 @@
+# Monitor progress in calculating IBD segments on Beagle
+
+c=$1
+num_nodes=$2 #20
+dir=/lustre/beagle/ober/users/oren/out/impute_cgi_work/chr$c;
+
+total_done=0
+total_tasks=0
+for (( i=0; i<num_nodes; i++ )); do
+    n=`printf "%04d" $i`;
+    pair=`cat ${dir}/ibd_segments_all/node-${n}/segments-${n}.out | sort -k5n,5 -k7n,7 | tail -1 | awk {'if ($5 <= $7) { print $5, $7; } else { print $7, $5;}'}`
+    done=`grep -m 1 -n "${pair}" ${dir}/ibd_segments_all/node-${n}/ibd_segments_all-${n}.in | awk -F: {'print $1'}`
+    tasks=`wc -l ${dir}/ibd_segments_all/node-${n}/ibd_segments_all-${n}.in | awk {'print $1'}`
+    percent=`echo "scale=2;100.*${done}/${tasks}" | bc`
+    echo "Node $n $percent% done"
+    total_done=$(( total_done + done ))
+    total_tasks=$(( total_tasks + tasks ))
+done
+percent=`echo "scale=2;100.*${total_done}/${total_tasks}" | bc`
+echo "Total: $percent% done"

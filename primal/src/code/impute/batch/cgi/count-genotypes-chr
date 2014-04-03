@@ -1,0 +1,62 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Count all genotype frequencies of interest in one chromosome.
+# Includes genotype rates, phasing rates, imputed rates.
+#-----------------------------------------------------------------
+chrom="$1"
+genotype_thresholds="$2" # space-delimiter list of genotype thresholds - floating-point in [0,1]. E.g. "0.98 1.00"
+phasing_thresholds="$3" # space-delimiter list of genotype thresholds - floating-point in [0,1]. E.g. "0.98 1.00"
+#imputed_file="$OBER_OUT/impute_cgi/imputed/imputed_cgi.chr${chrom}.tsv.gz"
+#imputed_file="$OBER_OUT/impute_cgi/imputed-override/imputed_override.chr${chrom}.tsv.gz"
+#out_dir="$OBER_OUT/impute_cgi/count/chr${chrom}"
+imputed_file="$4.chr${chrom}.tsv.gz"
+out_dir="$5/chr${chrom}"
+
+# Constants
+variant_types="snp ins del sub"
+# Paths
+genotype_file="${OBER_OUT}/impute_cgi/genotypes/genotypes.chr${chrom}.tsv.gz"
+src="${OBER_CODE}/impute/batch/cgi"
+count_exec="count-genotypes"
+num_groups=6 # Number of groups to create totals for. Matches the number of ${count_exec} processes below.
+
+# Create a file with counts for every SNP
+mkdir -p ${out_dir}
+cd ${out_dir}
+if [ ! -f "count.txt" ]; then
+    # Count genotype calls in all samples. Output variant IDs in the first column. Skip first header line.
+    ${count_exec} -v -n 1                                       -s genotypes-sample.txt ${genotype_file} > genotypes.txt &
+    # Count phased haplotypes among the WGS samples. No variant ID needed since we have one already.
+    ${count_exec} -g haplotype -i ${src}/cgi-98.index -t 1 -e 2 -s phasing-sample.txt   ${imputed_file}  > phasing.txt &
+    # Count imputed genotype among the imputed samples. No variant ID needed since we have one already.
+    ${count_exec} -g haplotype -i ${src}/imputed.index          -s imputed-sample.txt   ${imputed_file}  > imputed.txt &
+    # Count POO-phased genotype calls in all samples. No variant ID needed since we have one already.
+    ${count_exec} -g haplotype -t 2 -e 2                        -s poo-sample.txt       ${imputed_file}  > poo.txt &
+    # Count LD-imputation genotype calls in all samples. No variant ID needed since we have one already.
+    ${count_exec} -g haplotype -t 3 -e 3                        -s ld-sample.txt        ${imputed_file}  > ld.txt &
+    # Count LD-imputation genotype calls in all samples. No variant ID needed since we have one already.
+    ${count_exec} -g haplotype -t 4 -e 4                        -s ld-poo-sample.txt    ${imputed_file}  > ld-poo.txt &
+    wait
+    paste genotypes.txt phasing.txt imputed.txt poo.txt ld.txt ld-poo.txt > count.txt
+#    rm genotypes*.txt phasing*.txt imputed*.txt poo*.txt ld*.txt
+fi
+
+# Apply filters and calculate total counts for each filter set
+sum_call_rates="sum-call-rates ${num_groups}"
+cat count.txt | ${sum_call_rates} > count-all-all.txt
+for v in ${variant_types}; do
+    cat count.txt | ${sum_call_rates} $v > count-all-$v.txt
+done
+
+for t in ${genotype_thresholds}; do
+    awk -v t=$t '$13 >= t' count.txt | ${sum_call_rates} > count-$t-all.txt
+    for v in ${variant_types}; do
+	awk -v t=$t '$13 >= t' count.txt | ${sum_call_rates} $v > count-$t-$v.txt
+    done
+    for p in ${phasing_thresholds}; do
+	awk -v t=$t -v p=$p '($13 >= t) && ($24 >= p)' count.txt | ${sum_call_rates} > count-$t-$p-all.txt
+	for v in ${variant_types}; do
+	    awk -v t=$t -v p=$p '($13 >= t) && ($24 >= p)' count.txt | ${sum_call_rates} $v > count-$t-$p-$v.txt
+	done
+    done
+done

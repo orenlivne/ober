@@ -1,0 +1,3 @@
+chr=$1
+part=$2
+cat out/map/map.sub | sed "s/\$(chr)/${chr}/g" | sed "s/\$(part)/${part}/g" > map_chr${chr}_part${part}.sub

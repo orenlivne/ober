@@ -1,0 +1,25 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Sort Lide Han's id kinship file by first id, then by second
+# id2. Analogous to sort-idcoef.
+# 
+# Author: Oren E. Livne
+# Date:   28-FEB-2013
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 0 ]; then
+  echo "Usage: ${PROGNAME}"
+  echo ""
+  echo "Sort Lide's kinship coefficients file for faster access."
+  echo "Sort by first id, then by second id2. Extract id1,id2, lam, deltas."
+  echo "Output entries for both (id1,id2) and (id2,id1). Read from stdin."
+  exit $E_BADARGS
+fi
+awk {'printf "%d %d %e\n", $1,$2,$3; \
+	  if ($1 != $2) { \
+		printf "%d %d %e\n", $2,$1,$3;\
+	}'} | sort -n -k 1,1n -k2,2n

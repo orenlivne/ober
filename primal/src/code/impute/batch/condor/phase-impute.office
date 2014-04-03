@@ -1,0 +1,33 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Complete phasing and imputation pipeline for office machine.
+# Run on the entire genome.
+#
+# Argument $1 = data set under data directory
+# 
+# Author: Oren E. Livne
+# Date:   10-DEC-2012
+#----------------------------------------------------------------
+
+# Path to phasing & imputation runnable python scripts
+BIN_HOME="${OBER}/code/impute/impute/bin"
+
+# Phasing
+phase-batch -p ${OBER}/system/bin/my-python.office -f 2 -s 1 -e 22 -o $1 -g $1/imputed ${OBER}/code/impute/batch/phase.local.fan ${OBER}/data/hutt/hutt 50
+
+# Wait until phasing is done. Observe whether a lock file exists in a while loop
+phasing_out_dir="${OBER}/out/hutt/$1"
+done_file="${phasing_out_dir}/result/hutt_phased"
+while [ ! -f ${done_file} ]; do
+	tail ${phasing_out_dir}/pipeline.dag.dagman.out
+	echo "==================================================================================="
+	sleep 5
+done
+
+# Imputation
+impute_dir="${OBER}/data/impute/rare"
+iplex_dir="${impute_dir}/to_livne_20121205"
+python ${BIN_HOME}/run_impute_ibs.py -tnpz ${phasing_out_dir}/$1 ${impute_dir}/rare.npz ${iplex_dir} ${impute_dir}/imputed.$1.npz
+
+# Generate imputation plots
+python ${BIN_HOME}/run_impute_stats.py ${impute_dir}/imputed.$1.npz ${OBER}/out/hutt/$1 ${impute_dir}/imputed.$1.

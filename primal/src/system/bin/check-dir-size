@@ -1,0 +1,27 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# Monitor directory size over time
+#--------------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+if [ $# -ne 2 ]; then
+  echo "Usage: ${PROGNAME} <dir> <total_estimated_size>"
+  echo ""
+  echo "Monitor directory size. Useful when we rsync into it an estimated total of"
+  echo "total_estimated_size [in MB] and would like to monitor the actual size over time."
+  exit $E_BADARGS
+fi
+
+dir="$1"
+total_size="$2"
+
+echo "Checking directory size of $dir"
+while [ true ]; do
+    s=`du -sm $dir | \
+        perl -ne "m|((\d+(\.\d+)*)\s.*)| && \
+	printf(\"Size %8.2fG, remaining %8.2fG\n\", \\\$1/1024., (${total_size}-\\\$1)/(1024.))"`
+    echo "[`date`] ${s}"
+    sleep 10
+done

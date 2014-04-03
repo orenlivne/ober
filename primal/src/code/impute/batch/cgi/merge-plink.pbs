@@ -1,0 +1,29 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Merge all imputed plink files into a master bed file.
+#-----------------------------------------------------------------
+#PBS -l walltime=04:00:00
+#PBS -l mppwidth=24
+#PBS -N merge_plink
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+aprun -n 1 -N 1 -d 24 ${OBER_CODE}/impute/batch/cgi/merge-plink.sh
+
+#-----------------------------------------------------------------
+# Transfer files to permanent CRI storage
+#-----------------------------------------------------------------
+OUT_DIR="${OBER_OUT}/impute_cgi/data-sets" # Local data sets dir
+DEST_DIR="/group/ober-resources/users/olivne/data-sets" # Remote data sets dir
+#chmod 644 ${OUT_DIR}/*
+rsync -apq ${OUT_DIR}/ olivne@bios.cri.uchicago.edu:${DEST_DIR}/
+# Set proper permissions
+ssh olivne@bios.cri.uchicago.edu "chmod -R a+rX-w ${DEST_DIR} ; chmod -R u+w ${DEST_DIR}"

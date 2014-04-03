@@ -1,0 +1,28 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Count genotypes in an imputed CGI file of a each chromosome.
+#-----------------------------------------------------------------
+#PBS -l walltime=02:00:00
+#PBS -N count_genotypes
+#PBS -q batch
+#PBS -j oe
+
+# Environment variables passed in
+#selected_ids="lung.id"
+#target="count-lung.txt"
+echo "Using target=$target, selected_ids=$selected_ids"
+start_chr="1"
+stop_chr="22"
+for (( chrom=$start_chr; chrom<=$stop_chr; chrom++ )); do
+    $OBER/code/impute/batch/cgi/count_cgi_genotypes.sh $chrom $target $selected_ids &
+done
+wait
+
+# Create a master count file
+cd $OBER_OUT/impute_cgi/final
+rm -f $target
+touch $target
+for (( chrom=$start_chr; chrom<=$stop_chr; chrom++ )); do
+    cat $target.chr$chrom.txt >> $target
+    rm -f $target.chr$chrom.txt 
+done

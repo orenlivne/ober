@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Thresholds for filtering CGI genotypes
+thresholds="0.95 0.98 0.99 1.00"
+# Thresholds for filtering imputed genotypes using the variant ID lists obtained from filtering CGI genotypes
+selected_thresholds="0.98 0.99"
+
+src="${OBER_CODE}/impute/batch/cgi"
+dir="$OBER_OUT/impute_cgi/filtered-genotypes"
+mkdir -p ${dir}
+cd ${dir}
+
+# Count genotypes for different thresholds
+filter_cgi=""
+for t in ${thresholds}; do
+    job_id=`qsub -vthreshold=$t ${src}/filter-cgi-genotypes.pbs`
+    filter_cgi="${filter_cgi}:${job_id}"
+done
+
+# Genotype count report
+filter_cgi_report=`qsub -W depend=afterok${filter_cgi} -vthresholds="\"${thresholds}\"" ${src}/count-filtered-genotypes.pbs`
+
+# Filter imputed genotypes according to a subset of reasonable thresholds
+for t in ${selected_thresholds}; do
+    filter_imputed=`qsub -W depend=afterok:${filter_cgi_report} -v threshold=$t ${src}/filter-imputed-genotypes.pbs`
+done

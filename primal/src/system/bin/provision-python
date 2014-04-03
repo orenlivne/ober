@@ -1,0 +1,468 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Python environment provisioning.
+# - Downloads and compiles python, virtualenv and from sources
+# - Downloads and compiles BLAS, LAPACK from sources
+# - Installs python packages -- latest versions:
+#   PIL
+#   networkx
+#   numpy
+#   matplotlib (optional)
+#   scipy
+#   nose
+#   blist
+#   sqlalchemy
+#   MySQLdb
+#
+# Currently only the Linux GNU 64-bit compiler is suported.
+# However, support for other compilers can be easily added in the
+# functions get_fortran_compiler_line, lapack_opts.
+#
+# Ubuntu/Debian package requirements:
+# make
+# apt-get install m4 g++ gfortran libssl-dev dh-exec python-dev libfreetype6-dev
+# sudo ln -s /lib/x86_64-linux-gnu/libz.so.1 /lib/libz.so
+# 
+# Author: Oren E. Livne
+# Date:   28-SEP-2012
+#----------------------------------------------------------------
+
+#=======================================
+# Constants, default values
+#=======================================
+# Python version to install
+PYTHON_VERSION="2.7.3"
+# PIP python packages to install
+PYTHON_PACKAGES=( "nose" "PIL" "networkx" "numpy" "scipy" "matplotlib" "blist" "sqlalchemy" "MySQL-python") # optional: "MySQL-python", "pyliftover", "Biopython"
+
+# Optional packages, for testing:
+# guppy (note: need svn trunk version for python 2.7 support): pip install https://guppy-pe.svn.sourceforge.net/svnroot/guppy-pe/trunk/guppy
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Read input arguments
+    verbose=false
+    while getopts "hvp:" optionName; do
+	case "$optionName" in
+	    p) PYTHON_VERSION="${OPT}ARG";;
+	    v) verbose=true;;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+        esac
+    done
+
+    # Get mandatory arguments
+    shift $(( ${OPTIND} -1 ))
+    if [[ $# -ne 2 ]]; then
+	echo "Target directory, virtual environment must be specified."
+	print_type_for_help
+    fi
+#    DIR="$1/python-`uname`-`uname -m`"
+    TARGET_DIR="$1"
+    DIR="${TARGET_DIR}" #/virtualenvs"
+    VIRTUALENV="$2"
+
+    if $verbose ; then
+        # 3 points to stdout
+	exec 3>&1
+    else
+        # 3 points to a file
+	exec 3>/dev/null
+    fi
+    # Argument validation
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} [flags] <target-dir> <virtual-env>"
+    echo -e ""
+    echo -e "Provision python and dependencies under <TARGET-DIR> and in a virtual environment"
+    echo -e "called <virtual-env>."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-p python-version\tPython compiler version. Default: ${PYTHON_VERSION}"
+    echo -e "\t-v\t\t\tVerbose mode."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#=======================================
+# Printouts
+#=======================================
+function write_item
+{
+    printf "%-35s " "$@"
+}
+
+function write_ok
+{
+    printf "[  OK  ]\n"
+}
+
+function write_fail
+{
+    printf "[ FAIL ]\n"
+}
+
+function write_retval
+{
+    if [ $1 -eq 0 ]; then
+	write_ok
+    else
+	write_fail
+	exit 1
+    fi
+}
+
+function write_assert_equal
+{
+    if [[ x"$1" != x"$2" ]]; then
+	write_fail
+	exit 1
+    else
+	write_ok
+    fi
+}
+
+function write_assert_not_equal
+{
+    if [[ x"$1" == x"$2" ]]; then
+	write_fail
+	exit 1
+    else
+	write_ok
+    fi
+}
+
+#=======================================
+# Python Installation 
+#=======================================
+function python_install
+{
+    python_home="$1"
+    version="$2"
+    write_item "Downloading python"
+    wget http://www.python.org/ftp/python/${version}/Python-${version}.tgz 2>&3 >&3
+    tar zxf Python-${version}.tgz 2>&3 >&3
+    cd Python-${version}
+    write_ok
+    
+    printf "Building python in ${python_home} ...\n"
+    mkdir ${python_home}
+    cd ${DIR}/Python-${version}
+    make clean 2>&3 >&3
+    write_item "* Configure ..."
+    # --with-zlib=/usr/include does not seem to work
+    # Using manual fix, see http://community.webfaction.com/questions/6443/unable-to-compile-python-23-with-zlib-support
+    ./configure --prefix=${python_home} --with-zlib=/usr/include 2>&3 >&3
+    write_retval "$?"
+
+    sed -i "s/^#zlib/zlib/g" Modules/Setup
+    #sed -i "s/^#_md5/md5/g" Modules/Setup
+    #sed -i "s/^#_sha256/sha256/g" Modules/Setup
+    #sed -i "s/^#_sha512/sha512/g" Modules/Setup
+    write_item "* Build ..."
+    make 2>&3 >&3
+    write_retval "$?"
+
+    write_item "* Install ..."
+    ( make install && ./configure --prefix=${python_home} && make && make install ) 2>&3 >&3
+    write_retval "$?"
+
+    rm -rf ${DIR}/*.tgz ${DIR}/Python-${version}
+}
+
+function python_test
+{
+   # Test that python and zlib work
+    write_item "* Python zlib test ..."
+    foo="foo"
+    output=`python -c "import zlib;x = zlib.compress('${foo}');print zlib.decompress(x)"`
+    write_assert_equal "$foo" "$output"
+}
+
+#=======================================
+# Third-Party Software Install in /opt
+#=======================================
+function plink_install
+{
+    rm -rf ${OPT}/plink*
+    machine=`uname -m`
+    version=1.07
+    write_item "* Download, unzip ..."
+    wget -qO- http://pngu.mgh.harvard.edu/~purcell/plink/dist/plink-${version}-${machine}.zip | python -c "import zipfile,sys,StringIO;zipfile.ZipFile(StringIO.StringIO(sys.stdin.read())).extractall(sys.argv[1] if len(sys.argv) == 2 else '.')" ${OPT} 2>&3 >&3
+    write_retval "$?"
+    ln -s ${OPT}/plink-${version}-${machine} ${OPT}/plink
+    chmod +x ${OPT}/plink/plink
+}
+
+#=======================================
+# BLAS Installation
+#=======================================
+function blas_fortran_compiler_line
+{
+    machine=`uname -m`
+    case "$machine" in
+	add_32_bit_identifier_here) 
+	    if [[ -x `which gfortran 2>&1` ]]; then 
+		echo "gfortran -O2 -std=legacy -fno-second-underscore"
+	    else
+		echo "g77 -O2 -fno-second-underscore"
+	    fi
+	    ;;
+	x86_64) 
+	    if [[ -x `which gfortran 2>&1` ]]; then 
+		echo "gfortran -O3 -std=legacy -m64 -fno-second-underscore -fPIC"
+	    else
+		echo "g77 -O3 -m64 -fno-second-underscore -fPIC -c *.f"
+	    fi
+	    ;;
+	add_intel_compiler_here)
+	    echo "ifort -FI -w90 -w95 -cm -O3 -unroll" ;;
+	*)
+	    echo "Unsupported machine type '$machine'"; exit ;;
+    esac
+}
+
+function install_blas
+{
+    printf "Installing BLAS ...\n"
+    mkdir -p ${SRC}
+    cd ${SRC}
+    rm -rf blas* BLAS*
+    write_item "* Download ..."
+    wget http://www.netlib.org/blas/blas.tgz 2>&3 >&3
+    tar xzf blas.tgz 2>&3 >&3
+    write_retval "$?"
+
+    write_item "* Build ..."
+    cd ${SRC}/BLAS
+    FORTRAN=$(blas_fortran_compiler_line)
+    #printf "  Using Fotran flags ${FORTRAN}\n"
+    ${FORTRAN} -c *.f 2>&3 >&3
+    ar r libfblas.a *.o 2>&3 >&3
+    ranlib libfblas.a 2>&3 >&3
+    write_retval "$?"
+    
+    write_item "* Install, clean ..."
+    rm -rf *.o
+    rm ${SRC}/blas.tgz
+    write_ok
+}
+
+#=======================================
+# LAPACK Installation
+#=======================================
+function lapack_opts
+{
+# Add support for more platforms in the future:
+#
+#    cp INSTALL/make.inc.gfortran make.inc          # on Linux with lapack-3.2.1 or newer
+#    cp INSTALL/make.inc.LINUX make.inc             # on Linux with older lapack
+# Edit make.inc as follows:
+# For GNU compiler on 32-bit Linux (these are the defaults):
+#    PLAT = _LINUX
+#    OPTS = -O2
+# OR for GNU compiler on 64-bit Linux:
+# OR for Absoft (8.x or later):
+#    PLAT = _LINUX
+#    OPTS = -O3 -YNO_CDEC
+# OR for Intel Fortran compiler on Linux:
+#    wget http://www.scipy.org/download/misc/make.inc.LINUX_IFC
+#    cp make.inc.LINUX_IFC make.inc
+    machine=`uname -m`
+    case "$machine" in
+	add_32_bit_identifier_here) 
+	    if [[ -x `which gfortran 2>&1` ]]; then 
+		echo "TBA"
+	    else
+		echo "TBA"
+	    fi
+	    ;;
+	x86_64) 
+	    if [[ -x `which gfortran 2>&1` ]]; then 
+		echo "PLAT = _LINUX\\nOPTS = -O2 -m64 -fPIC\\nNOOPT = -m64 -fPIC\\n"
+	    else
+		echo "TBA"
+	    fi
+	    ;;
+	add_intel_compiler_here)
+	    echo "TBA" ;;
+	*)
+	    echo "Unsupported machine type '$machine'"; exit ;;
+    esac
+}
+
+function install_lapack
+{
+    printf "Installing LAPACK ...\n"
+    mkdir -p ${SRC}
+    cd ${SRC}
+    rm -rf lapack* LAPACK*
+    write_item "* Download ..."
+    wget http://www.netlib.org/lapack/lapack.tgz 2>&3 >&3
+    write_retval "$?"
+
+    write_item "* Configure ..."
+    tar xzf lapack.tgz 2>&3 >&3
+    ln -s lapack-* LAPACK
+    cd ${SRC}/LAPACK
+    # Create makefile configuration file with compiler-specific options
+    #echo -e "Using LAPACK options:\n$(lapack_opts)"
+    echo -e $(lapack_opts) > make.inc
+    ( cat make.inc.example | egrep -v -e '^(PLAT|OPTS|NOOPT) +=' ) >> make.inc
+    write_ok
+
+    # Continue below irrespective of compiler:
+    write_item "* Build ..."
+    make lapacklib 2>&3 >&3
+    write_retval "$?"
+
+    write_item "* Install ..."
+    make clean 2>&3 >&3
+    write_retval "$?"
+#    cp lapack_LINUX.a libflapack.a                 # on Linux
+    rm ${SRC}/lapack.tgz
+}
+
+function install_package
+{
+    write_item "Instaling pip package $1"
+    pip install $1 --upgrade 2>&3 >&3
+    write_retval "$?"
+}
+
+function package_test
+{
+    if [[ $1 == "PIL" ]]; then
+	import="Image"
+	version="Image.VERSION"
+    else
+	import="$1"
+	version="$1.__version__"
+    fi
+    version=`python -c "import ${import}; print \"%s\" % (${version},)" 2>&1`
+    if [[ -n `echo $version | grep Error` ]]; then
+	echo "Error"
+    else
+	echo "${version}"
+    fi
+}
+
+#=======================================
+# Misc Functions
+#=======================================
+function create_activate_script
+{
+    echo -e "#!/bin/bash\n" \
+	"export PATH=\"${PYTHON_HOME}/bin:${OPT}/plink:$PATH\"\n" \
+	"export LD_LIBRARY_PATH=\"${LIB}:$LD_LIBRARY_PATH\"\n" \
+	". ${DIR}/${VIRTUALENV}/bin/activate\n" \
+	"export OBER=\"${TARGET_DIR}/ober\"\n" \
+	"export APPS=\"${DIR}/${VIRTUALENV}/opt\"\n" > "$1"
+    chmod +x "$1"
+}
+
+#=======================================
+# Main Program
+#=======================================
+
+# Set up environment
+read_input_args "$@"
+PYTHON_HOME="${DIR}/python"
+LIB=${DIR}/lib
+SRC="${DIR}/src"
+OPT="${DIR}/opt"
+mkdir -p ${DIR}
+#create_activate_script "${DIR}/activate"
+
+export PATH="${PYTHON_HOME}/bin:${OPT}/plink:$PATH"
+export LD_LIBRARY_PATH="${LIB}:$LD_LIBRARY_PATH"
+
+mkdir -p ${DIR} ${OPT} ${SRC}
+cd ${DIR}
+echo "Provisioning in `pwd`"
+
+# Install python
+#if [[ ! -x "${PYTHON_HOME}/bin/python" ]]; then
+#    python_install "${PYTHON_HOME}" "${PYTHON_VERSION}"
+#fi
+python_test
+printf "%-35s [ %-10s installed ]\n" "Python" `( python --version 2>&1 ) | cut -d ' ' -f 2`
+
+# Install virtual environment
+if [[ ! -f "${DIR}/${VIRTUALENV}/bin/activate" ]]; then
+    echo "Downloading virtualenv ..."
+    cd ${DIR}
+    wget https://raw.github.com/pypa/virtualenv/master/virtualenv.py --no-check-certificate 2>&3 >&3
+    echo "Creating virtual environment ${VIRTUALENV}..."
+    python ${DIR}/virtualenv.py ${VIRTUALENV} 2>&3 >&3
+fi
+. ${VIRTUALENV}/bin/activate
+
+# Install numpy & scipy dependencies
+export BLAS="${SRC}/BLAS/libfblas.a"
+if [[ ! -f ${BLAS} ]]; then
+    install_blas
+fi
+export LAPACK="${SRC}/LAPACK/liblapack.a"
+if [[ ! -f ${LAPACK} ]]; then
+    install_lapack
+fi
+
+# Copy shared object libraries. Assuming they are under /usr/lib
+if [ ! -d "${LIB}" ]; then
+    write_item "Copying shared libraries"
+    mkdir ${LIB}
+    find /usr/lib -name "libgfortran*.so*3*" -o -name "libgccpp*.so*" | xargs -iddd cp ddd ${LIB}
+    write_ok
+fi
+
+# Install third-party software
+cd ${DIR}
+if [ ! -d "${OPT}/plink" ]; then
+    printf "Installing plink in ${OPT}/plink\n"
+    plink_install
+fi
+printf "%-35s [ %-10s installed ]\n" "PLINK" `plink --noweb --help | grep PLINK | head -1 | awk {'print $4'} | sed -e 's/^v//g'`
+rm ${DIR}/plink.log
+
+# Install python packages
+num_retrys=1
+for i in "${PYTHON_PACKAGES[@]}"; do
+    version=$(package_test "$i")
+    if [[ x$version != x"Error" ]]; then
+       # Package already installed
+	printf "%-35s [ %-10s installed ]\n" $i ${version}
+       continue
+    fi
+    install_package "$i"
+    version=$(package_test "$i")
+    try=0
+    while [[ ( x$version == x"Error" ) && ( $try < $retrys ) ]]; do
+	try=$(( try + 1 ))
+	write_fail
+	printf "Problem installing $i, retrying #$try\n"
+	write_item "Uninstalling $1 ..."
+	pip uninstall < yes 2>&3 >&3
+	write_retval "$?"
+	install_package "$i"
+	version=$(package_test "$i")
+    done
+    write_assert_not_equal "$version" "Error" 
+    printf "$i version: $version\n"
+done

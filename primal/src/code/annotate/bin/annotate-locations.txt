@@ -1,0 +1,6 @@
+#!/bin/bash
+#------------------------------------------------------------------------
+# Annotate a standard output in the format "chrom position".
+# print to stdout the same format with extra annotation columns.
+#------------------------------------------------------------------------
+paste -d, $1 <( echo "\"var_region\",\"var_func\",\"var_mutation\",\"var_polyphen_score\",\"var_polyphen_pred\"" ; while read line; do echo $line | awk -F, '{ printf "mysql -u hutt -phutt hutt -e \"select var_region, var_func, var_mutation, var_polyphen_score, var_polyphen_pred from hutt where chromosome=%s and bp_end=%s\"\n", $1, $2;}' > query; . query | sed '1d'; done < <(sed '1d' $1 | cut -d, -f 2,4) | sed 's/\t/\",\"/g' | awk '{printf "\"%s\"\n", $0}')

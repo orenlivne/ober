@@ -1,0 +1,127 @@
+#!/bin/bash
+#------------------------------------------------------------------------
+# Run IMPUTE2 on a window (chunk of data of a chromosome).
+# 
+# Author: Oren E. Livne
+# Date:   13-SEP-2013
+#------------------------------------------------------------------------
+
+#=======================================
+# Constants
+#=======================================
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+# Name of impute2 executable
+IMPUTE2_EXEC="impute2"
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Threshold for IMPUTE2 probabilities to be considered as called genotypes
+    threshold="0.99"
+    # Input phased or unphased data into IMPUTE2?
+    phased=false
+
+    # Read input arguments
+    while getopts "ht:p" optionName; do
+	case "$optionName" in
+	    t) threshold="$OPTARG";;
+	    p) phased=true;;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 1 ]]; then
+  	echo "Data set prefix must be specified."
+	print_type_for_help
+    fi
+
+    # Chromosome's output directory
+    n="$1" #${OBER_OUT}/impute_cgi/impute2/chr${chrom}"
+    # Node number
+    #node="$2"
+    # Part number
+    #part="$3"
+
+    if ${phased}; then
+	suffix="haps"
+    else
+	suffix="gen"
+    fi
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} <data-set-prefix>"
+    echo -e ""
+    echo -e "Run IMPUTE2 on chunk #part in node #node of chromosome chrom."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-t threshold\t\tIMPUTE2 genotype calling threshold 0..1. Default: ${threshold}"
+    echo -e "\t-p\t\tInput phased or unphased data into IMPUTE2? Default: ${phased}"
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit ${E_BADARGS}
+}
+
+#=======================================
+# Business Logic
+#=======================================
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+# Common file prefix to this chunk
+#n="${out_home}/node-`printf \"%04d\" ${node}`/run_impute2-`printf \"%04d\" ${part}`"
+# Output file name prefix
+out="$n.impute2.${suffix}"
+head -1 ${out}.dose.old
+cat $n.imputed.${suffix} | awk '{ for (i = 1; i <= NF; i+= 2) { if (($i == "?") || ($(i+1) == "?")) printf "? "; else printf "%d ", $i+$(i+1); } printf "\n"; }' | head -1
+
+paste \
+    ${out}.dose.old \
+    <(cat $n.imputed.${suffix} | awk '{ for (i = 1; i <= NF; i+= 2) { if (($i == "?") || ($(i+1) == "?")) printf "? "; else printf "%d ", $i+$(i+1); } printf "\n"; }') | \
+	awk '{ \
+    for (i = 1; i <= 5; i++) printf "%s ", $i; \
+    all = (NF-5)/2; \
+    called = 0; \
+    discordant = 0; \
+    called_het = 0; \
+    discordant_het = 0; \
+    called_impute2 = 0; \
+    called_pedigree = 0; \
+    for (i = 6; i < 6+all; i++) \
+    { \
+      dose_impute2 = $i;
+      dose_pedigree = $(i+all);
+      if ((dose_impute2 != "?") && (dose_pedigree == "?")) called_impute2++;
+      if (dose_pedigree != "?") called_pedigree++;
+      if ((dose_impute2 != "?") && (dose_pedigree != "?")) \
+      { \
+         called++; \
+         if (dose_impute2 != dose_pedigree) discordant++; \
+         \
+         if ((dose_impute2 == 1) || (dose_pedigree == 1)) \
+         { \
+           called_het++; \
+           if (dose_impute2 != dose_pedigree) discordant_het++;
+         } \
+      } \
+    } \
+    printf "%f %f\n", (1.*called_impute2)/(all+1e-15), (1.*called_pedigree)/(all+1e-15);}' | head -1

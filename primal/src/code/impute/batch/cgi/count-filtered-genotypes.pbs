@@ -1,0 +1,19 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Prepare a report of CGI variant counts for different thresolds.
+#-----------------------------------------------------------------
+#PBS -l walltime=00:05:00
+#PBS -l mppwidth=528
+#PBS -N filter-cgi-genotypes
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+aprun -n 1 -d 1 -N 1 $OBER_CODE/impute/batch/cgi/count-filtered-genotypes

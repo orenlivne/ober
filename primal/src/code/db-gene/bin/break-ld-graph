@@ -1,0 +1,24 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Break an LD graph file into chromosome LD graph adjacency lists.
+# 
+# Author: Oren E. Livne
+# Date:   26-NOV-2012
+#----------------------------------------------------------------
+
+progname=`basename $0`
+if [[ ($# -ne 1) ]]; then
+    echo "Usage: $progname <ld-file>"
+    echo ""
+    echo "Break an LD graph file into chromosome LD graph adjacency lists."
+    exit 1
+fi
+
+file="$1"
+name=$(echo ${file} | awk -F\. '{print $1}')
+extension=$(echo ${file} | awk -F\. '{print $2}')
+
+for (( chrom=1 ; chrom <= 22; chrom++ )); do
+    echo "Extracting chromosome ${chrom} ..."
+    awk "\$2 == ${chrom}" ${file} | awk '{print $3,$4,$5}' > ld_chr${chrom}.txt
+done

@@ -1,0 +1,184 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# Monitor progress in indexing IBD segments
+#
+# Author: Oren E. Livne
+# Date:   01-APR-2013
+#--------------------------------------------------------------------
+
+#=======================================
+# Read input parameters
+#=======================================
+PROGNAME=`basename $0`
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Start chromosome index to process 
+    start_chr=1
+    # End chromosome index to process 
+    stop_chr=22
+    # Display Full output
+    do_full=false
+    # Monitor mode (while true)
+    do_monitor=false
+    # Monitor frequency [sec]
+    monitor_frequency="60"
+	
+    # Read input arguments
+    while getopts "hfms:e:t:" optionName; do
+	case "$optionName" in
+	    s) start_chr="$OPTARG";;
+	    e) stop_chr="$OPTARG";;
+	    f) do_full=true;;
+	    m) do_monitor=true;;
+	    t) monitor_frequency="$OPTARG";;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 1 ]]; then
+  	echo "Output directory must be specified."
+	print_type_for_help
+    fi
+
+    dir="$1"
+}
+
+function print_usage
+{
+    echo -e "Usage: $progname [flags] <output-dir>"
+    echo -e ""
+    echo -e "Monitor the IBD index segment phase."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-s start-chr\tStart processing from this chromosome index. Default: ${start_chr}"
+    echo -e "\t-e stop-chr\tStop processing at this chromosome index. Default: ${stop_chr}"
+    echo -e "\t-f\t\tPrint full output."
+    echo -e "\t-m\t\tMonitor mode (run in an infinite loop)."
+    echo -e "\t-t secs\t\tMonitor frequency [sec]. Default: ${monitor_frequency}"
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#==============================
+# Business Logic
+#==============================
+function print_stats
+{
+    printf "%-5s %-12s %-22s %-12s %-12s %-10s\n" "Chrom" "Job ID" "#Completed SNPs" "Remaining" "Projected" "Status"
+    for (( chrom = $start_chr; chrom <= $stop_chr; chrom++ )); do
+	d="$dir/chr${chrom}/index_segments"
+	if [ -f $d/index_segments.id ]; then
+	    job=`cat $d/index_segments.id`
+	else
+	    job="-"
+	fi
+	file="$d/node-0000/index_segments-0000.out"
+
+	# Find and print files containing incomplete regions
+	if $do_full; then
+	    num_nodes=`find $d -name node-* | wc -l`
+	    printf "%3s %-105s %-2s %-8s %-4s %-6s %-6s\n" "ND" "OUT-FILE" "#R" "SEGMENTS" "SNPs" "%CPU" "%MEM";
+	    for (( node=0; node < ${num_nodes}; node++ )); do
+		dd=$d/node-`printf "%04d" ${node}`
+		paste <(seq 0 $(( num_nodes-1 )) ) <(for i in `find $dd -name '*.out'`; do echo $i `grep 'Loading' $i | wc -l` `grep 'Loaded' $i | awk '{print $7}' | paste -sd+ | bc` `grep SNP $i | wc -l`; done) <(find $dd -name '*.monitor' -exec tail -1 {} \;) | awk '{printf "%3d %-105s %2d %8d %4d %-6.2f %-6.2f\n", $1, $2, $3, $4, $5, $6, $8/320.}'
+	    done
+	    #paste <(seq 0 $(( num_nodes-1 )) ) <(for i in `find $d -name '*.out'`; do echo $i `grep 'Loading' $i | wc -l` `grep 'Loaded' $i | awk '{print $7}' | paste -sd+ | bc` `grep SNP $i | wc -l`; done) <(find $d -name '*.monitor' -exec tail -1 {} \;) | awk '{printf "%3d %-105s %2d %8d %4d %-6.2f %-6.2f\n", $1, $2, $3, $4, $5, $6, $8/320.}'
+	fi
+    
+	printf "%-5d %-12s " $chrom $job
+	if [ -f ${file} ]; then
+	    snps=`find $d -name '*.out' | parallel -j 10 grep SNP {} | wc -l`
+	    #snps=`( for i in \`find $d -name '*.out'\`; do echo $i \`grep SNP $i | wc -l\`; done ) | cut -d' ' -f 2 | paste -sd+  | bc`
+	    tot=`head -1 ${file} | cut -d, -f 2 | cut -d' ' -f 3`
+	    if [ "$snps" == "$tot" ]; then
+		printf "Done"
+	    else
+		printf "%5d/%5d (%6.2f%%)" $snps $tot `echo "scale=4; 100.0 * $snps / $tot" | bc`
+		out="$dir/chr${chrom}/index_segments.o"`echo ${job} | sed 's/.sdb//g'`
+		if [ -f $out ]; then
+		    status="grep OOM $out"
+		    if [ -n "$status" ]; then
+			status="completed"
+		    else
+			status="oom"
+		    fi
+		else
+		    status="running"
+		fi
+		if [ "${status}" == "oom" ]; then
+		    printf "  %-12s %-12s %-10s" "-" "-" "RAN OUT OF MEMORY"
+		elif [ "${status}" == "completed" ]; then
+		    printf "  %-12s %-12s %-10s" "-" "-" "INCOMPLETE"
+
+		    # Find and print particular regions that did not complete
+		    for file in `find $d -name '*.out' -exec egrep -L Elapsed {} \;`; do
+			#echo $file `grep SNP $file | wc -l`
+			region_size=`grep "region size" $file | cut -d' ' -f 7`
+			grep Loaded $file | 
+			while read i; do
+			    first_snp=`echo $i | sed 's/.*\[\s*\(.*\),\s*\(.*\)).*/\1/g'`
+			    last_snp=`echo $i | sed 's/.*\[\s*\(.*\),\s*\(.*\)).*/\2/g'`
+			    last_done=`grep "SNP ${last_snp}" $file`
+			    if [ -z "$last_done" ]; then
+				printf " %-3d" $(( $first_snp / $region_size ))
+			    fi
+			done
+		    done
+		else
+		    start_time=`qstat -f ${job} | egrep start_time | cut -d= -f 2`
+		    wall_time=`qstat -f ${job} | egrep Resource_List.walltime | cut -d= -f 2`
+		    completion_fraction=`echo "scale=4; 1.0 * $snps / $tot" | bc`
+		    s=(`printf "%s\n%s\n%f" "${start_time[*]}" "${wall_time[*]}" ${completion_fraction} | ${OBER_CODE}/util/utilities/time/job_times.py`)
+		    printf "  %-12s %-12s " ${s[0]} ${s[1]}
+		    if [[ "${s[2]}" == "1" ]]; then
+			printf "%-10s" "ON TIME"
+		    else
+			printf "%-10s" "TOO LONG"
+		    fi
+		fi
+	    fi
+	else
+	    printf "No data available"
+	fi
+	printf "\n"
+    done
+}
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+if [ $dir == "make-me-coffee" ]; then
+    echo "The coffee machine is in the break room. Go make it yourself."
+    echo ""
+    echo "WARNING: you are seeing this message because you are a moron."
+    echo "ERROR: ID10T code: user is stupid. Exiting"
+    exit -1
+fi
+
+if $do_monitor; then
+    while true; do
+	clear
+	printf "index_segments progress monitor\n"
+	printf "===============================\n"
+	date
+	print_stats
+	sleep ${monitor_frequency}
+    done
+else
+    print_stats
+fi

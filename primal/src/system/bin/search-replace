@@ -1,0 +1,42 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# search_replace - search-and-replace script.
+#
+# This script is courtesy of
+# Brian Eliason
+# Clinical Research Data Warehouse Database Analyst
+# The Children's Hospital
+# Clinical Informatics
+# 13123 East 16th Avenue Box 400
+# Aurora, CO 80045
+# 720.777.1825
+# eliason.brian@tchden.org
+#----------------------------------------------------------------
+
+#author: Brian Eliason
+#created: March 25, 2009
+#note:  searches and replaces given pattern.  will replace multiple occurences within single file
+if [ $# -gt 5 -o $# -lt 4 ]; then
+   echo "Usage search_replace.bash <basePath> <filenamePattern> <searchPattern> <replaceStr> [separator]"
+   exit 1;
+        #search_replace.bash . "*properties" 7070 8080
+        #search_replace.bash . "*properties" localhost tsohlacol
+        #search_replace.bash . "*properties" tsohlacol localhost
+        #search_replace.sh . "*txt" level rung " "
+        #./search_replace.bash "/export/home/i2b2/test" "*txt" "level" "rung" " "
+        #search_replace.bash "/export/home/i2b2/i2b2core-src_1-3-RC4" "db.properties" "xe" "i2b2demo" " "
+        #BE AWARE!!  unless you pick up the entire string, results could be unpredictable
+fi
+SEPARATOR=/
+if [ $# -eq 5 ]; then
+        SEPARATOR=$5
+fi
+
+for filename in `find "$1" -name "$2" -type f -print0 | xargs -0 grep -l "$3"`
+do
+        echo "File $filename contains pattern, replacing."
+        cp $filename $filename.old
+        sed -e 's'"${SEPARATOR}$3${SEPARATOR}$4${SEPARATOR}"'g' < $filename.old > $filename
+        rm $filename.old
+done
+

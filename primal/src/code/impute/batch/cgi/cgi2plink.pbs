@@ -1,0 +1,35 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Convert imputed CGI genotype files into plink.
+#
+# Input parameters:
+# out_dir - imputed data directory
+# start_chr - chromosome number to start processing at
+# stop_chr - chromosome number to stop processing at (inclusive)
+# po - true if outputting PO genotypes, empty if all genotypes
+#-----------------------------------------------------------------
+#PBS -l walltime=04:00:00
+#PBS -l mppwidth=24
+#PBS -N cgi2plink
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+aprun -n 1 -N 1 -d 24 bash -x ${OBER_CODE}/impute/batch/cgi/cgi2plink ${out_dir} ${start_chr} ${stop_chr} 24 ${po}
+
+#---------------------
+# Transfer data to CRI
+#---------------------
+# Must run on mom node since there's no network on the compute nodes, it seems.
+# Location to archive imputation files under
+archive="olivne@bios.cri.uchicago.edu:/group/ober-resources/users/olivne/imputed-override/"
+cd ${out_dir}
+chmod 644 *
+rsync -apq hutterites.genotyped.tfam imputed_cgi.chr*.{bed,bim,fam} ${archive}

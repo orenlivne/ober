@@ -1,0 +1,114 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Run parallel phasing pipeline on the entire genome.
+#
+# Argument $1 = data set under data directory
+# 
+# Author: Oren E. Livne
+# Date:   25-SEP-2012
+#----------------------------------------------------------------
+
+#=======================================
+# CONSTANTS
+#=======================================
+PYTHON_EXEC="$OBER/system/bin/my-python.ibi"
+#IMPUTED_DIR="/clusta/livne/data/imputed.`date +\"%s\"`"
+IMPUTED_DIR="/clusta/livne/data/imputed.`date +\"%Y%m%d\"`"
+BATCH_HOME="${OBER}/code/impute/batch"
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Don't run phasing; only monitor
+    monitor=false
+    # Sleep amount between monitoring snapshots
+    sleep_amount="3"
+    # Part size [Mb]
+    part_size="50"
+    out=""
+    # Read input arguments
+    while getopts "hmr:p:o:" optionName; do
+	case "$optionName" in
+	    m) monitor=true;;
+	    r) sleep_amount="$OPTARG";;
+	    p) part_size="$OPTARG";;
+	    o) out="$OPTARG";;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ ! monitor && $# -ne 1 ]]; then
+	echo "An input data set must be specified in submit mode."
+	print_type_for_help
+    fi
+    input="$1"
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} [flags] <data-set>"
+    echo -e ""
+    echo -e "Run the phasing program on the data set <data-set> under the data directory."
+    echo -e "The data partitioned by chromosome, and then by part of size part-size."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-p part-size\tChromosome part size [Mb]. Default: ${part_size}"
+    echo -e "\t-r sleep-amount\tSleep amount between monitoring refreshes. Default: ${sleep_amount}"
+    echo -e "\t-m\t\tDon't run phasing; only monitor."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#=======================================
+# Helper Functions
+#=======================================
+# Monitor phasing progress
+function monitor
+{
+    while [[ 1 ]]; do
+	clear
+	condor_q  | head -12
+	echo "==================================================================================="
+	condor_status -total
+	echo ""
+	echo "==================================================================================="
+	tail -10 ${out}/pipeline.dag.dagman.out
+	sleep ${sleep_amount}
+    done
+}
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+# Set up environment
+if [ "x${out}" == "x" ]; then
+    out="${OBER_DATA}/`dirname ${input}`/out"
+fi
+mkdir -p ${out}
+if ! ${monitor}; then
+    cmd="phase-batch -p ${PYTHON_EXEC} -g ${IMPUTED_DIR} -f 2 -o ${out} ${BATCH_HOME}/phase.local.fan ${OBER_DATA}/${input} ${part_size}"
+#    echo "$cmd"
+    bash -x $cmd
+#    $cmd
+else
+    monitor
+fi

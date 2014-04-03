@@ -1,0 +1,20 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Send an SSH command, passing the password as an argument without
+# waiting for input during the run.
+# 
+# Author: Matt Greenway and Oren E. Livne
+# Date: 21-MAR-2012
+#----------------------------------------------------------------
+
+# Cat standard input into a temp file
+
+host=$1
+pass=$2
+cmd=$3
+
+printf "spawn ssh $host '$cmd'\n \
+       expect \"password:\"\n \
+       send \"$pass\\\n\"\n \
+       interact\n" 
+#| expect-pipe

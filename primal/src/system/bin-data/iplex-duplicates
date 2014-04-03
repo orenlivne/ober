@@ -1,0 +1,27 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Read iPlex genotypes (genotyped by Kristen; extracted from
+# the dakota database by William) from files in the current
+# directory, and convert to a format that
+# can be loaded into python.
+# 
+# DEPRECATED. IMPLEMENTED IN PYTHON. Can be used to find duplicate
+# subjects within each SNP's file that have conflicting genotypes.
+#
+# Author: Oren E. Livne
+# Date:   05-DEC-2012
+#----------------------------------------------------------------
+
+for file in `find *.txt`; do
+    snp=`echo ${file} | sed 's/\_iPlex\_HUTTERITE\.txt//g'`
+    cat ${file} | sed '1d' | sed '$d' | awk '$1 != "CONTROL"' > ${snp}.tmp
+done
+
+echo "Duplicate samples with conflicting genotypes:"
+for file in `find *.tmp`; do
+    for i in `awk '{print $1}' $file| sort | uniq -d`; do
+    	awk -v i=$i '$1 == i' $file;
+    done;
+done | uniq | awk '{ print $1 }' | uniq -d
+
+rm -f *.tmp

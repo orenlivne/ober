@@ -1,0 +1,130 @@
+#!/bin/bash
+#----------------------------------------------------------
+# Set up bash environment for running Ober lab programs.
+#
+# Relies on setting the OBER environment variable, 
+# otherwise uses a default value. Include in your
+# ~/.bash_profile, overriding the DEFAULT_* variables
+# (see top section of this file) beforehand if needed.
+# 
+# Author: Oren E. Livne
+# Date  : 16-AUG-2012
+#----------------------------------------------------------
+#echo "Running ober profile..."
+
+#==========================================================
+# Defaults - you may override in your .bash_profile
+# before sourcing this file therein
+#==========================================================
+
+# Directory where you checked out the ober SVN tree
+DEFAULT_OBER="$HOME/ober"
+
+# Directory under which plink and other applications are installed
+DEFAULT_APPS="/opt"
+
+#-----------------------------------------------------
+# Detect which operating system we're running on.
+#-----------------------------------------------------
+function detect_os()
+{
+    # OS specific support (must be 'true' or 'false').
+    case "$OSTYPE" in
+        cygwin*)
+            echo "cygwin"
+            ;;
+        linux*)
+            echo "unix"
+            ;;
+        *)
+           echo "Unsupported operating system $OSTYPE"
+           exit -1
+    esac
+}
+
+#-----------------------------------------------------
+# Set Application Paths, aiases, environment vars
+#-----------------------------------------------------
+
+os=$(detect_os)
+
+# TODO: replace by a struct with all variables and loop over it to set values
+if [ "x$OBER" == "x" ]; then
+    export OBER="$DEFAULT_OBER"
+fi
+if [ "x$OBER_DATA" == "x" ]; then
+    export OBER_DATA="$OBER/data"
+fi
+if [ "x$OBER_OUT" == "x" ]; then
+    export OBER_OUT="$OBER/out"
+fi
+if [ "x$APPS" == "x" ]; then
+    export APPS="$DEFAULT_APPS"
+fi
+
+# Directories
+export PLINK_HOME="$APPS/plink"
+export IMPUTE2_HOME="$APPS/impute2"
+export TABIX_HOME="$APPS/tabix"
+export LIFTOVER_HOME="$APPS/liftover"
+export OBER_CODE="$OBER/code"
+export TEST_DATA_DIR="$OBER/testdata"
+
+# python virtualenv configurations
+export WORKON_HOME="$HOME/virtualenvs"
+export VIRTUALENVWRAPPER_PYTHON=`which python`
+
+# Stores ipython profiles
+export IPYTHONDIR="$OBER/system/ipython"
+
+# Python project directories to add to PYTHONPATH. Relative to ${OBER_CODE}.
+python_path_dirs=( 'util' 'impute' 'network' 'famplot' 'lethal' 'db-gene' 'misc', 'annotate')
+# Code path dirs to add to PATH. Relative to ${OBER_CODE}.
+bin_path_dirs=( 'impute/bin' 'impute/batch' 'impute/batch/cgi' 'impute/batch/impute2' 'impute/impute/ibd/ibdld' 'famplot' 'condor-fan' 'db-gene/bin' 'annotate/bin' )
+
+#================================
+# Set paths
+#================================
+
+if [ "$os" == "cygwin" ]; then
+    separator=';'
+else
+    separator=':'
+fi
+for i in "${python_path_dirs[@]}"; do
+    export PYTHONPATH="${OBER_CODE}/${i}${separator}${PYTHONPATH}"
+done
+
+export PERL5LIB="/home/path/lib:$OBER/lawrence/packages:$PERL5LIB"
+
+export PATH=".:${PLINK_HOME}:${IMPUTE2_HOME}:${TABIX_HOME}:${LIFTOVER_HOME}:${OBER}/system/bin:${OBER}/system/bin-data:$PATH"
+for i in "${bin_path_dirs[@]}"; do
+    export PATH="${OBER_CODE}/${i}:${PATH}"
+done
+
+if [ "x$PYTHON_HOME" != "x" ]; then
+    export PATH="$PYTHON_HOME:$PATH"
+fi
+
+#================================
+# Directory and other aliases
+#================================
+alias i="ipython --pylab --profile=oren"
+export o="$OBER"
+export code="$OBER_CODE"
+export impute="$code/impute"
+export b="$impute/impute/batch"
+export qm="while true; do clear; qs ; sleep 10; done"
+export p="$OBER_OUT/phasing/chr22"
+export i="$OBER_OUT/impute_cgi/imputed-override"
+
+# Set the executable flag on a version-controlled file
+function svnexec() { svn propset svn:executable yes "$@"; }
+
+#================================
+# Cluster aliases
+#================================
+export beagle="login1.beagle.ci.uchicago.edu"
+export cri="bios.cri.uchicago.edu"
+export im="${OBER_OUT}/impute_cgi/imputed-override"
+export im2="${OBER_OUT}/impute_cgi/imputed-override2"

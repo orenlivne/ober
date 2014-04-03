@@ -1,0 +1,23 @@
+#!/bin/bash
+#-------------------------------------------------------------
+# Filter am imputed CGI file using the variant ID list
+# obtained by filter-cgi-genotypes.
+#
+# Assuming the output directory already exists.
+#
+# Usage: filter-imputed-genotypes <chrom> <call-rate-threshold>
+#-------------------------------------------------------------
+chrom="$1"
+threshold="$2"
+
+imputed="$OBER_OUT/impute_cgi/imputed/imputed_cgi.chr%chrom%.tsv"
+filtered="$OBER_OUT/impute_cgi/filtered-genotypes/${threshold}/variant_id.chr%chrom%"
+out="$OBER_OUT/impute_cgi/imputed/${threshold}/imputed_cgi.chr%chrom%.tsv"
+
+imputed_data=${imputed/\%chrom\%/${chrom}}
+filtered_data=${filtered/\%chrom\%/${chrom}}
+out_data=${out/\%chrom\%/${chrom}}
+
+echo $imputed_data $filtered_data $out_data
+
+join -1 1 <(sort -k 1b,1 $imputed_data) <(sort -k 1b,1 $filtered_data) | sort -k 1n,1 > $out_data

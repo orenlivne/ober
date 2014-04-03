@@ -1,0 +1,32 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# Count genotypes in all chromosomes in parallel.
+#
+# Author: Oren E. Livne
+# Date:   15-APR-2013
+#--------------------------------------------------------------------
+# Constants
+genotype_thresholds="0.98 1.00"
+phasing_thresholds="0.95"
+
+start_chr="$1"
+stop_chr="$2"
+imputed_prefix="$3"
+out_dir="$4"
+
+step="1" # So that there are 8 chromosomes running at one time x 3 threads/chr= 24 threads, matching 24 cores. In practice, do less just in case.
+#step="3" # So that there are 8 chromosomes running at one time x 3 threads/chr= 24 threads, matching 24 cores. In practice, do less just in case.
+
+# Count within each chromosome. Spawn subsets of chromosomes in parallel, since we might
+# choke the node with too many threads if we do all of them.
+# TODO: replace with piping to a parallel command
+for start in `seq $start_chr $(( $start_chr + $step ))`; do
+    for chrom in `seq $start $step $stop_chr`; do
+	printf "Counting $chrom\n"
+	bash -x count-genotypes-chr ${chrom} "${genotype_thresholds}" "${phasing_thresholds}" "${imputed_prefix}" "${out_dir}" &
+    done
+    wait
+done
+
+# Merge to global (genomic) count files
+#merge-genotype-counts "${out_dir}" "${genotype_thresholds}" "${phasing_thresholds}" $start_chr $stop_chr

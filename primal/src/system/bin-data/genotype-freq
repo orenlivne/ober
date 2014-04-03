@@ -1,0 +1,105 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Calculate genotype frequencies of a CGI or imputed data file.
+# 
+# Author: Oren E. Livne
+# Date:   31-DEC-2013
+#----------------------------------------------------------------
+
+# Constants
+DARGS=65
+PROGNAME=`basename $0`
+
+#=======================================
+# Read input parameters
+#=======================================
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Input type 
+    input_data_type="cgi"
+
+    # Read input arguments
+    while getopts "ht:" optionName; do
+	case "$optionName" in
+	    t) input_data_type="$OPTARG";;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    #shift $(( $OPTIND -1 ))
+    #if [[ $# -ne 0 ]]; then
+  	#echo "No mandatory args."
+	#print_type_for_help
+    #fi
+    #input_data_type="$1"
+   # if [[ ( "x${index_file}" == "x" ) && ( "x${sample}" == "x" ) ]]; then
+  #	echo "Must specify index file or sample index."
+#	print_type_for_help
+#    fi
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} [flags]"
+    echo -e ""
+    echo -e "Calculate genotype frequencies of a CGI or imputed data file."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-t input_data_type\tData type (cgi|imputed). Default: ${sample}"
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit ${E_BADARGS}
+}
+
+#=======================================
+# Business Logic
+#=======================================
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+case "${input_data_type}" in
+    #----------------------------------
+    # CGI genotypes
+    #----------------------------------
+    cgi)
+    	AWK_CMD='{ print $0 }'
+	;;    
+    
+    #----------------------------------
+    # Imputed genotypes
+    #----------------------------------
+    imputed)
+    	AWK_CMD='{ print substr($1, 2, 2)}'
+    	;;
+    *)
+  	echo "Unrecognized data type."
+	print_type_for_help
+	;;
+esac
+
+echo "Genotype frequencies:"
+cut -f 9- | tr '\t' '\n' | awk "${AWK_CMD}" | sort | uniq -c | tee out
+echo ""
+awk '{ a[substr($2, 1, 1)] += $1; a[substr($2, 2, 1)] += $1; \
+       all += $1;
+       if ((substr($2, 1, 1) != "N") && (substr($2, 2, 1) != "N")) called += $1; } \
+    END { \
+      printf "Total: N: %s, 0: %s, 1: %s\n", a["N"], a["0"], a["1"]; \
+      b = 1.0*(a["0"] + a["1"]); \
+      printf "Allele frequencies: 0: %f, 1: %f\n", a["0"] / b, a["1"] / b; \
+      printf "Call rate: %f = %d/%d\n", (1.0*called)/all, called, all; \
+    }' out
+rm -f out

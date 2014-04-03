@@ -1,0 +1,26 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Prepare a report of CGI variant counts for different thresolds.
+#-----------------------------------------------------------------
+cd $OBER_OUT/impute_cgi/count
+
+printf "%-6s" "Chrom" > count-all.txt
+first=true
+for t in ${thresholds}; do
+    printf " %8s" $t >> count-all.txt
+    file="$t/count-$t.txt"
+    if $first; then
+	cp $file temp
+	first=false
+    else	
+	join -t " " -1 1 temp $file > temp2
+	mv temp2 temp
+    fi
+done
+printf "\n" >> count-all.txt
+cat temp | awk '{ printf "%-6s", $1; for (i=2; i<=NF; i++) { printf " %8d", $i}; printf "\n"; }' >> count-all.txt
+rm -f temp
+
+# Sort by chromosome; Total will come first. TODO: custom sorting to move the total to the end?
+sort -n count-all.txt > temp
+mv temp count-all.txt

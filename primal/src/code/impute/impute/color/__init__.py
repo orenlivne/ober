@@ -1,0 +1,9 @@
+'''
+============================================================
+IBD segment sharing identification algorithms package.
+
+Created on September 14, 2012
+@author: Oren Livne <livne@uchicago.edu>
+============================================================
+'''
+import hap_color_grouping, hap_color

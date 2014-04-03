@@ -1,0 +1,208 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Count all genotype frequencies of interest in one chromosome.
+# Includes genotype rates, phasing rates, imputed rates.
+#-----------------------------------------------------------------
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+WORK_DIR="$1"
+# Architecture (CRI/Beagle Cluster)
+arch="beagle"
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Clean output dir first
+    do_clean=false
+    # Generate pipeline
+    do_generate=false
+    # Run pipeline
+    do_run=false
+    # Dependency ID, if pipeline should start upon another job's success
+    dependency_id=""
+	
+    # Read input arguments
+    while getopts "hcgrs:e:d:" optionName; do
+	case "$optionName" in
+	    c) do_clean=true;;
+	    g) do_generate=true;;
+	    r) do_run=true;;
+	    d) dependency_id="$OPTARG";;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 4 ]]; then
+  	echo "4 mandatory arguments must be specified."
+	print_type_for_help
+    fi
+    chrom="$1"
+    nodes="$2"
+    instances_per_node="$3"
+    walltime="$4"
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} [flags] <work-dir>"
+    echo -e ""
+    echo -e "Count all genotype frequencies of interest in one chromosome."
+    echo -e "Includes genotype rates, phasing rates, imputed rates."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-c\t\tClean the output directory first."
+    echo -e "\t-g\t\tGenerate the pipeline."
+    echo -e "\t-r\t\tSpawn jobs. If not set, submission files are generated only."
+    echo -e "\t-d job-id\tDependency job id, if pipeline should start upon another job's success."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#=======================================
+# Pipeline Construction
+#=======================================
+# Create submission script for count results merging within a group.
+function create_count_reduce
+{
+    group="$1"
+    job_name="$2"
+    out="${out_dir}/${group}"
+
+    cat <<EOF > ${out}/${job_name}.sh
+#!/bin/bash
+( find ${out} -name "*.out" | sort -n | xargs -iddd cat ddd ) > ${out}/${group}.txt
+EOF
+    chmod +x ${out}/${job_name}.sh
+
+    cat <<EOF > ${out}/${job_name}.pbs
+#!/bin/bash
+#PBS -l walltime=00:05:00
+#PBS -l mppwidth=24
+#PBS -N ${job_name}
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd \$PBS_O_WORKDIR
+
+aprun -n 1 -N 1 -d 1 ${out}/${job_name}.sh
+EOF
+}
+
+function pipeline_count_group
+{
+    group="$1"
+    in_file="$2"
+    sample_index="$3"
+    if [[ "x${sample_index}" != "x" ]]; then
+	sample_flag="-i ${sample_index}"
+	else
+	sample_flag=""
+    fi
+    count_name="count_genotypes_${group}"
+    reduce_name="count_reduce_${group}"
+    out="${out_dir}/${group}"
+    mkdir -p ${out}
+    
+    # Create scripts
+    if $do_generate; then
+	#echo "Generating input files, group ${group}"
+	pack_jobs.py -m -t beagle -p job_name=${count_name},walltime=${walltime},nodes=${nodes},instances_per_node=${instances_per_node},chrom=${chrom},input_file=${in_file},out=${out},count_flags="-v ${sample_flag}" ${src}/count-genotypes.beagle.sub ${out} >& ${out}/pack_jobs.log
+	create_count_reduce ${group} ${reduce_name}
+    fi
+    
+    # Submit scripts: count genotypes -> reduce results
+    if $do_run; then
+	#echo "Running jobs, group ${group}"
+	count=`qsub ${out}/${count_name}.pbs`
+	count_reduce=`qsub -W depend=afterok:${count} ${out}/${reduce_name}.pbs`
+	echo "${count_reduce}" # Return value = job ID of last job in topological order in the job DAG created by this function
+    fi
+}
+
+# Create submission script for group count merging.
+function create_group_reduce
+{
+    job_name="$1"
+    out_file="$2"
+    cat <<EOF > ${out_dir}/${job_name}.sh
+#!/bin/bash
+cd ${out_dir}
+paste genotypes/genotypes.txt phasing/phasing.txt imputed/imputed.txt > ${out_file}
+EOF
+    chmod +x ${out_dir}/${job_name}.sh
+
+    cat <<EOF > ${out_dir}/${job_name}.pbs
+#!/bin/bash
+#PBS -l walltime=00:05:00
+#PBS -l mppwidth=24
+#PBS -N ${job_name}
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd \$PBS_O_WORKDIR
+
+aprun -n 1 -N 1 -d 1 ${out_dir}/${job_name}.sh
+EOF
+}
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+genotype_file="${OBER_OUT}/impute_cgi/genotypes/genotypes.chr${chrom}.tsv"
+imputed_file="${OBER_OUT}/impute_cgi/imputed-override/imputed_override.chr${chrom}.tsv"
+out_dir="$OBER_OUT/impute_cgi/count/chr${chrom}"
+src="${OBER_CODE}/impute/batch/cgi"
+
+if $do_clean; then
+    echo "Cleaning output directory"
+    rm -rf ${out_dir}/genotypes ${out_dir}/phasing ${out_dir}/imputed >& /dev/null
+fi
+mkdir -p ${out_dir}
+
+# Count within each group
+mkdir -p ${out_dir}
+temp="${out_dir}/genotype.tsv"
+if [ ! -f "${temp}" ]; then
+    echo "Generating clean genotype file"
+    sed -e '1d' ${genotype_file} > ${temp}
+fi
+g1=$( pipeline_count_group "genotypes" ${temp} "" )
+#rm -f ${temp}
+
+g2=$( pipeline_count_group "phasing" ${imputed_file} ${src}/cgi-98.index  )
+g3=$( pipeline_count_group "imputed" ${imputed_file} ${src}/imputed.index  )
+
+# Merge groups to final result
+group_reduce_name="group_reduce"
+create_group_reduce ${group_reduce_name} count.txt
+if $do_run; then
+    count_reduce=`qsub -W depend=afterok:${g1}:${g2}:${g3} ${out_dir}/${group_reduce_name}.pbs`
+fi

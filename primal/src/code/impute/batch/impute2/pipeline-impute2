@@ -1,0 +1,331 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# IMPUTE2 CGI imputation pipeline on Beagle.
+#
+# Author: Oren E. Livne
+# Date:   18-SEP-2013
+#--------------------------------------------------------------------
+
+# Constants
+DARGS=65
+PROGNAME=`basename $0`
+SRC_DIR="${OBER_CODE}/impute/batch/impute2"
+
+#=======================================
+# Read input parameters
+#=======================================
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Queue / reservation name
+    queue_flags="-q batch" # Example of a reservation: queue_flags="-l advres=cga.2409"
+    # Start chromosome index to process 
+    start_chr=1
+    # End chromosome index to process 
+    stop_chr=22
+    # Clean output dir first
+    do_clean=false
+    # Generate pipeline files
+    do_create=false
+    # Run pipeline
+    do_run=false
+    # Run imputation stage
+    do_impute=false
+    # Dependency ID, if pipeline should start upon another job's success
+    dependency_id=""
+    # Target architecture (CRI/Beagle Cluster)
+    arch="beagle"
+    # Input phased or unphased data into IMPUTE2?
+    phased=false
+    # Combine all chromosome results at the end
+    do_combine=false
+    # Location of imputation files to override
+    imputed_dir="${OBER_OUT}/impute_cgi/imputed-override"
+    # Location of final output files
+    final_out="${OBER_OUT}/impute_cgi/imputed-override2"
+	
+    # Read input arguments
+    while getopts "ihcbgrpa:s:e:d:x:y:q:" optionName; do
+	case "$optionName" in
+	    a) arch="$OPTARG";;
+	    s) start_chr="$OPTARG";;
+	    e) stop_chr="$OPTARG";;
+	    c) do_clean=true;;
+	    g) do_create=true;;
+	    r) do_run=true;;
+	    i) do_impute=true;;
+	    d) dependency_id="$OPTARG";;
+	    p) phased=true;;
+	    b) do_combine=true;;
+	    h) print_usage; exit 0;;
+	    x) imputed_dir="$OPTARG";;
+	    y) final_out="$OPTARG";;
+	    q) queue_flags="$OPTARG";;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 1 ]]; then
+  	echo "Work dir must be specified."
+	print_type_for_help
+    fi
+    work_dir="$1"
+
+    # Flags, file suffixes for delegate programs that depend on phasing flag
+    if ${phased}; then
+	phased_flags="-p"
+	suffix="haps"
+    else
+	phased_flags=""
+	suffix="gen"
+    fi
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} [flags] <work-dir>"
+    echo -e ""
+    echo -e "Run CGI imputation on the Hutterites data set. Place submission files under work-dir."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-a arch\t\tTarget architecture. Default: ${arch}"
+    echo -e "\t-s start-chr\tStart processing from this chromosome index. Default: ${start_chr}"
+    echo -e "\t-e stop-chr\tStop processing at this chromosome index. Default: ${stop_chr}"
+    echo -e "\t-c\t\tClean the output directory first."
+    echo -e "\t-g\t\tGenerate the pipeline."
+    echo -e "\t-r\t\tSpawn jobs. If not set, submission files are generated only."
+    echo -e "\t-i\t\tRun the imputation stage. If not, just postprocessing is run."
+    echo -e "\t-d job-id\tDependency job id, if pipeline should start upon another job's success."
+    echo -e "\t-p\t\tInput phased or unphased data into IMPUTE2? Default: ${phased}"
+    echo -e "\t-b\t\tCombine all chromosome results at the end? Default: ${do_combine}"
+    echo -e "\t-x\t\tLocation of imputation files to override with IMPUTE2. Default: ${imputed_dir}"
+    echo -e "\t-y\t\tLocation of final output files. Default: ${final_out}"
+    echo -e "\t-q\t\tQueue to submit to (-q batch or -l resname). Default: ${queue_flags}"
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit ${E_BADARGS}
+}
+
+#=======================================
+# Pipeline Construction
+#=======================================
+# Submit a job whose name is A that depends on a job ID B (if B="", no dependency).
+# Returns job A's ID.
+function submit_job
+{
+    local job="$1" 			# Name of dependent job to be submitted
+    local is_dependency_array="$2" 	# Is dependency job an array or not
+    local dependency="$3" 	        # Dependency's ID (optional)
+    local other_flags="$4"              # Additional flags to be passed to qsub (optional)
+
+    QSUB_FLAGS="$other_flags"
+    if [[ x"$dependency" != "x" ]]; then
+	if [[ ( ! $is_dependency_array ) || ( ${arch} == "beagle" ) ]]; then
+	    status="afterok"
+	else
+	    status="afterokarray"
+	fi
+	QSUB_FLAGS="${QSUB_FLAGS} -W depend=${status}:${dependency}"
+    fi
+    job_id=`qsub ${QSUB_FLAGS} ${job}/${job}.pbs`
+    echo "${job_id}" > ${job}/${job}.id
+    echo "${job_id}"
+# Testing
+#    echo "'$job' '$is_dependency_array' '$dependency'" >> ${work_dir}/chr${chrom}/log
+#    echo "qsub ${QSUB_FLAGS} ${job}/${job}.pbs" >> ${work_dir}/chr${chrom}/log
+#    echo "${job}_id"
+}
+
+# Create submission script for input splitting.
+function create_job_prepare_impute2
+{
+    local out="$1"
+    local chrom="$2"
+    local nodes="$3"
+    local instances_per_node="$4"
+    local file="$5"
+
+    cat <<EOF > ${file}
+#!/bin/bash
+#PBS -l walltime=02:30:00
+#PBS -l mppwidth=24
+#PBS -N prepare_impute2
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd \$PBS_O_WORKDIR
+
+aprun -n 1 -N 1 -d 1 prepare-impute2 -v ${phased_flags} -o ${out} -n ${nodes} -i ${instances_per_node} -j ${instances_per_node} ${chrom}
+EOF
+}
+
+# Create submission script for imputation post-processing.
+function create_job_impute2_postprocess
+{ 
+    local out="$1"
+    local chrom="$2"
+    local suffix="$3"
+    local file="$4"
+    local imputed_dir="$5"
+    local final_out="$6"
+
+    cat <<EOF > ${file}
+#!/bin/bash
+#PBS -l walltime=10:00:00
+#PBS -l mppwidth=24
+#PBS -N impute2_postprocess
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd \$PBS_O_WORKDIR
+
+aprun -n 1 -N 1 -d 1 ${SRC_DIR}/impute2_postprocess ${out} ${imputed_dir} ${chrom} ${final_out}
+EOF
+}
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+mkdir -p ${final_out}
+
+# Allocate different resources for different chromosomes
+all_postprocess="" # Job IDs
+for (( chrom=${start_chr}; chrom<=${stop_chr}; chrom++ )); do
+    echo "Pipeline, chromosome ${chrom}"
+    #---------------------------------------------------
+    # Set up PBD scripts, directories
+    #---------------------------------------------------
+    out="${work_dir}/chr$chrom"
+    out_data="${out}/run_impute2"
+    echo "Output dir: ${out}"
+        
+    if $do_clean; then
+	echo "Cleaning output directory"
+        rm -rf ${out}/prepare_impute2 ${out_data} ${out}/impute2_postprocess >& /dev/null
+    fi
+    mkdir -p ${out} ${out_data}
+	
+    #---------------------------------------------------
+    # Set chromosome parameters
+    #---------------------------------------------------
+
+    # Convert #instances, nodes to <total len of chr>/1.4Mbp for a fixed window size.
+    # 1.4Mbp was optimal in our parametric study.
+    instances_per_node="24"
+    total_bp=`awk -v chrom=${chrom} '$1 == chrom' ${OBER}/testdata/batch-beagle/chrom-len | awk '{print $2}'`
+    window_bp=1400000 # Window size [bp]
+    nodes=`awk "BEGIN { printf \"%.f\n\", (1.0*${total_bp})/${window_bp}/${instances_per_node}; }"`
+    if [[ ${nodes} -lt 1 ]]; then
+	nodes="1"
+    fi
+    walltime="04:00:00" 
+    printf "##### Chr %d: nodes=%d, cores/node=%d, walltime=%s\n" \
+	${chrom} ${nodes} ${instances_per_node} ${walltime}
+
+    #---------------------------------------------------
+    # Create pipeline files
+    #---------------------------------------------------
+    if $do_create; then      
+	echo "Creating pipeline"
+	    
+	# Create submission script for input splitting
+	job="prepare_impute2"
+	echo "Creating impute2 input splitting job files"
+	mkdir -p ${out}/${job}
+	create_job_prepare_impute2 ${out_data} ${chrom} ${nodes} ${instances_per_node} ${out}/${job}/${job}.pbs ${imputed_dir} ${final_out}
+
+	# Create submission scripts that use the split input
+	job="run_impute2"
+	config_file="${SRC_DIR}/${job}.${arch}.sub"
+	echo "Running python `to-unix-path \`which pack_jobs.py\`` -v -t ${arch} -p chrom=${chrom},out=${out_data},nodes=${nodes},instances_per_node=${instances_per_node},walltime=${walltime},phased_flags=${phased_flags} ${config_file} ${out}/${job}"
+	python `to-unix-path \`which pack_jobs.py\`` -v -t ${arch} -p chrom=${chrom},out=${out_data},nodes=${nodes},instances_per_node=${instances_per_node},walltime=${walltime},phased_flags=${phased_flags} ${config_file} ${out}/${job}
+
+	job="impute2_postprocess"
+	echo "Creating post-processing job files"
+	mkdir -p ${out}/${job}
+	create_job_impute2_postprocess ${work_dir} ${chrom} ${suffix} ${out}/${job}/${job}.pbs ${imputed_dir} ${final_out}
+    fi
+
+    #---------------------------------------------------
+    # Run pipeline: spawn jobs in dependency order
+    #---------------------------------------------------
+    if $do_run; then      
+	echo "Running pipeline - submitting jobs"
+	cd / # To avoid stale NFS errors in the next command if output dir was deleted above
+	cd ${out}
+
+	if $do_impute; then
+     	    # Prepare input
+	    echo "Running: prepare impute2 input"
+#            prepare_impute2=$(submit_job prepare_impute2 "" "${dependency_id}" "${queue_flags}")
+
+   	    # Run LD-based imputation
+	    echo "Running: run impute2"
+	    run_impute2=$(submit_job run_impute2 "" "${prepare_impute2}" "${queue_flags}")
+	fi
+
+	# Merge individual imputation results into one; tabix-compress; count genotypes
+	echo "Running: impute2 post-process"
+	impute2_postprocess=$(submit_job impute2_postprocess false "${run_impute2}" "${queue_flags}")
+
+        # TODO: run imputation data override with impute2
+
+	all_postprocess=":${impute2_postprocess}${all_postprocess}"
+    fi
+done
+
+#---------------------------------------------------
+# Post-processing that combines all chromosomes
+#---------------------------------------------------
+SRC_DIR_CGI="${OBER_CODE}/impute/batch/cgi"
+
+# Run only combine steps assuming all chromosomes are done
+if [[ $start_chr -ge $stop_chr ]]; then
+    start_chr=1
+    stop_chr=22
+    all_postprocess=":${dependency_id}"
+fi
+if $do_combine; then
+    # Convert job list to a colon-delimited list for qsub dependency parameter compliance
+    all_postprocess=`echo "${all_postprocess}" | sed 's/^\s//g' | sed 's/\s/:/g'`
+    qsub_flags="${queue_flags} -v out_dir=${final_out},start_chr=${start_chr},stop_chr=${stop_chr} -W depend=afterok${all_postprocess}"
+
+    if $do_run; then
+	echo "Running reduce jobs: qsub_flags=${qsub_flags}"
+        # Convert to PLINK; depends on finishing all chromosome jobs above
+	cgi2plink=`qsub ${qsub_flags} ${SRC_DIR_CGI}/cgi2plink.pbs`
+        # Merge to global (genomic) count files
+	qsub ${qsub_flags} ${SRC_DIR_CGI}/merge-genotype-counts.pbs
+	# Create a big plink file
+	merge_plink=`qsub ${qsub_flags} -W depend=afterok:${cgi2plink} ${SRC_DIR_CGI}/merge-plink.pbs`
+	# Create useful data subsets for downstream analyses
+	qsub ${qsub_flags} -W depend=afterok:${merge_plink} ${SRC_DIR_CGI}/ld-prune-qc.pbs
+
+	# Generate IMPUTE2 genotype error rate historgram vs. IMPUTE2 certainty probability
+	qsub ${queue_flags} -W depend=afterok${all_postprocess} -l mppwidth=240 -v num_nodes=10,min_hets=100,num_bins=100,WORK_DIR=${OBER_OUT}/impute_cgi_work ${SRC_DIR}/qc-impute2.pbs
+    else
+	echo "Reduce jobs: qsub_flags=${qsub_flags}"
+    fi
+fi

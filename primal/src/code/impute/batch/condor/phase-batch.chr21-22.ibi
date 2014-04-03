@@ -1,0 +1,1 @@
+phase-batch -p $OBER/system/bin/my-python.ibi -g /clusta/livne/data/imputed.chr21-22 -f 2 -s 21 -e 22 -o `pwd`/out phase.local.fan /clusta/livne/data/hutt/hutt 50

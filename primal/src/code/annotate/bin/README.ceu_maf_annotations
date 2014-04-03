@@ -1,0 +1,45 @@
+
+
+My attempts at answers interspersed below:
+
+On Mon, Dec 9, 2013 at 10:25 AM, Oren Livne <livne@uchicago.edu> wrote:
+> - Which file contains the list of all Hutterite CGI variants?
+
+The file named *.genome_summary.csv contains the results of annotating
+all input variants. Note that this was run on the set of variants
+found in the 96 Hutterites, excluding the siblings, so there are fewer
+variants in this file than in the file you're working from.
+
+> - Which column in that file is the CEU MAF?
+
+The column named "1000g2012apr_EUR'"is what I used back when I was
+generating the preliminary report for Carole. This is what I see in
+the documentation for annovar regarding this:
+
+http://www.openbioinformatics.org/annovar/annovar_download.html#example
+
+"alternative allele frequency data in 1000 Genomes Project for ALL,
+AMR (admixed american), EUR (european), ASN (asian), AFR (african)
+populations"
+
+> - Which column is the base pair position?
+
+The columns named "Chr", "Start", "End", "vartype" should be helpful
+here, I think. I also included the "ref", "Obs", and "xref" data from
+the original CGI summary report.
+
+> - Are these dbSNP137 annotations?
+
+No. The "xref" column contains the CGI dbsnp annoations (which go up
+to dbsnp132), and the column named "dbSNP135" contains the annotations
+I was able to add using annovar for dbsnp135.
+
+> - When Carole says "variant not in 1000 genomes", does it mean it doesn't
+> appear in the
+>   annovar file?
+
+If I had to guess, I'd say "doesn't have a value in the
+"1000g2012apr_EUR" column.
+
+W
+

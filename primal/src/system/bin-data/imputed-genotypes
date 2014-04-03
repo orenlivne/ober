@@ -1,0 +1,194 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Extract a sample's imputed genotypes from phased imputed
+# genotype input. Sample index is 0-based.
+# 
+# Author: Oren E. Livne
+# Date:   08-FEB-2013
+#----------------------------------------------------------------
+
+# Constants
+DARGS=65
+PROGNAME=`basename $0`
+
+#=======================================
+# Read input parameters
+#=======================================
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Start chromosome index to process 
+    index_file=""
+    # Sample index 
+    sample=""
+    # Output variant ID
+    output_variant=0
+    # Delimiter of alleles within a genotype
+    delimiter=""
+    # Input phased or unphased data into IMPUTE2?
+    phased=false
+	
+    # Read input arguments
+    while getopts "hvi:s:d:p" optionName; do
+	case "$optionName" in
+	    i) index_file="$OPTARG";;
+	    s) sample="$OPTARG";;
+	    v) output_variant=1;;
+	    d) delimiter="$OPTARG";;
+	    p) phased=true;;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 1 ]]; then
+  	echo "Data type should be specified. Also use flags to specify filter."
+	print_type_for_help
+    fi
+    input_data_type="$1"
+
+    if [[ ( "x${index_file}" == "x" ) && ( "x${sample}" == "x" ) ]]; then
+  	echo "Must specify index file or sample index."
+	print_type_for_help
+    fi
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} <input-data-type> [flags]"
+    echo -e ""
+    echo -e "Extract a sample's imputed genotypes from phased imputed genotype input. Sample index is 0-based."
+    echo -e "Input data type: cgi|imputed|tped"
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-s sample\tExtract a single sample index. Default: ${sample}"
+    echo -e "\t-i index-file\tExtract all samples whose indices are in this file in impute2 format. Default: ${index_file}"
+    echo -e "\t-v\tOutput variant identifiers."
+    echo -e "\t-p\tIf impute2 format: output phased haplotypes. Otherwise, output genotypes. Default: ${phased}"
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit ${E_BADARGS}
+}
+
+#=======================================
+# Business Logic
+#=======================================
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+case "${input_data_type}" in
+    #----------------------------------
+    # CGI genotypes
+    #----------------------------------
+    cgi|imputed)
+	if [[ "${input_data_type}" != "imputed" ]]; then
+	    tagged=true
+	else
+	    tagged=false
+	fi
+
+	if [[ "x${sample}" != "x" ]]; then
+            # Extract a single sample
+	    awk -v s="${sample}" '{print $(9+s)}'
+            # -v output_variant="${output_variant}"
+	elif [[ "x${index_file}" != "x" ]]; then
+            # Extract multiple samples. Extract fully-called phased genotypes only, in impute2
+	    # genotype format.
+	    samples=`paste -sd' ' ${index_file}`
+	    awk -v samples="${samples}" -v delimiter="${delimiter}" -v tagged="${tagged}" \
+		-v phased="${phased}" \
+		'BEGIN \
+                 {\
+                   split(samples,indexes," "); \
+                   a["0"]="0"; a["1"]="1"; a["N"]="?"; \
+                 } \
+                 { \
+                   printf "%s %s %s %s %s", $1, $8, $4, $6, $7; \
+                   for (i = 1; i <= length(indexes); i++) \
+                   { \
+                      s=indexes[i];
+                      genotype=$(9+s); \
+                      if (tagged) \
+                      { \
+            	        tag = a[substr(genotype,1,1)]; \
+           	        g1 = a[substr(genotype,2,1)]; \
+                        g2 = a[substr(genotype,3,1)]; \
+                      } \
+                      else \
+                      { \
+            	        tag = 1;
+           	        g1 = a[substr(genotype,1,1)]; \
+                        g2 = a[substr(genotype,2,1)]; \
+                      } \
+                      if (phased == "true") \
+                      { \
+               	        if ((tag >= 1) && ((g1 == "?") || (g2 == "?"))) { g1 = "?"; g2 = "?"; } \
+                        printf " %s%s%s", g1, delimiter, g2; \
+                      } \
+                      else \
+                      { \
+                      	if ((g1 == "?") || (g2 == "?")) printf " ? ? ?"; \
+                      	else { \
+                          dose = g1+g2;
+                          if      (dose == 0) printf " 1 0 0"; \
+                          else if (dose == 1) printf " 0 1 0"; \
+                          else if (dose == 2) printf " 0 0 1"; \
+                          else { print "Impossible dosage encountered" > "/dev/stderr"; exit 1; } \
+                        } \
+                      } \
+                    } \
+                    printf "\n";
+                  }'
+	fi
+	;;
+    
+    #----------------------------------
+    # PLINK TPED format
+    #----------------------------------
+    tped)
+	if [[ "x${sample}" != "x" ]]; then
+            # Extract a single sample
+	    awk -v s="${sample}" -v delimiter="${delimiter}" \
+            '{ \
+              printf "%s%s%s\n", $(5+2*s), delimiter, $(6+2*s);
+            }'
+            # -v output_variant="${output_variant}"
+	elif [[ "x${index_file}" != "x" ]]; then
+            # Extract multiple samples. Extract genotypes only. CGI coding.
+	    samples=`paste -sd' ' ${index_file}`
+	    awk -v samples="${samples}" -v delimiter="${delimiter}" \
+		'BEGIN \
+                 {\
+                   split(samples,indexes," "); \
+                   a["1"]="0"; a["2"]="1"; a["0"]="N"; \
+                 } \
+                 { \
+                   printf "%s %s %s %s", $1, $2, $3, $4; \
+                   for (i = 1; i <= length(indexes); i++) \
+                   { \
+                      s = indexes[i];
+          	      g1 = a[$(5+2*s)]; \
+                      g2 = a[$(6+2*s)]; \
+                      printf " %s%s%s", g1, delimiter, g2; \
+                    } \
+                    printf "\n";
+                  }'
+	fi
+	;;
+    
+    *)
+  	echo "Unrecognized data type."
+	print_type_for_help;;
+esac

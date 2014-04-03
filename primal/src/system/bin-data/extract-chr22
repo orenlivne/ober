@@ -1,0 +1,26 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Extract chromosome 22 data from a binary PLINK to a
+# 12-recoded PLINK TPED (1=minor, 2=major).
+# 
+# Author: Oren E. Livne
+# Date:   16-JUL-2012
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 2 ]; then
+  echo "Usage: ${PROGNAME} <plink_in_file> <plink_out_file>"
+  echo ""
+  echo "Extract chromosome 22 data from a binary PLINK to a"
+  echo "12-recoded PLINK TPED (1=minor, 2=major)."
+  exit $E_BADARGS
+fi
+in="$1"
+out="$2"
+
+plink --noweb --bfile ${in} --chr 22 --nonfounders --freq --out ${out}
+sed '1d' ${out}.frq | awk {'print $2,$3'} > ${out}.mnr
+plink --noweb --bfile ${in} --chr 22 --recode12 --reference-allele ${out}.mnr --transpose --out ${out}

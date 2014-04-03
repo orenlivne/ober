@@ -1,0 +1,22 @@
+#!/bin/bash
+#---------------------------------------------------------------------
+# Find all unique SNP records in Hutterites LD files.
+# Search only L1 column values, not L2.
+#
+# Usage example:
+# snp-ld-unique ${OBER_DATA}/common/ld-hutt snp_ld.nof
+#---------------------------------------------------------------------
+in="$1"
+out="$2"
+rm -f ${out}
+touch ${out}
+for file in `find ${in} -name "*.pr2" -o -name "*.qr2"`; do
+  sed '1d' ${file} | awk {'print $1'} | uniq >> ${out}
+  printf "File %s, unique so far: %s\n" ${file} `wc -l ${out} | awk {'print $1'}`
+#  sed '1d' ${file} | awk {'print $2'} | uniq >> ${out}
+# printf "%s %s\n" ${file} `wc -l ${out} | awk {'print $1'}`
+done
+mv ${out} ${out}.tmp
+uniq ${out}.tmp > "${out}"
+rm -f ${out}.tmp
+printf "Total unique records: %s\n" `wc -l ${out} | awk {'print $1'}`

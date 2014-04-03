@@ -1,0 +1,5 @@
+#!/bin/bash
+# Run in data-common directory to convert all files of interest to our formats
+
+PREPROCESS=$OBER/code/impute/impute/preprocess
+python ${PREPROCESS}/convert_kinship.py hutterites.tfam kins.txt kins.npz

@@ -1,0 +1,67 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Find IPs in a range that are currently active.
+#----------------------------------------------------------------
+
+#==============================
+# Read input arguments
+#==============================
+
+progname=`basename $0`
+ip_min=0
+ip_max=255
+num=10000
+port=22
+
+if [[ ($# -lt 1) || ($# -gt 5) ]]; then
+    echo "Usage: $progname <ip_prefix> <min> <max> [num] [port]"
+    echo ""
+    echo "Output a list of up to num IP addresses in the range"
+    echo "ip_prefix.min..ip_prefix.max that are currently ssh-able."
+    echo "If num is not specified, all active IPs in the range are listed."
+    echo ""
+    echo "Examples:"
+    echo "  Find all up nodes in the CalTech sub-net (0..255):"
+    echo "     $progname 67.58.56"
+    echo "  Find all up CalTech nodes:"
+    echo "     $progname 67.58.56 67 97"
+    echo "  Find a single CalTech node that is connectable via port $port:"
+    echo "     $progname 67.58.56 67 97 1"
+    echo ""
+    echo "  Find a single CalTech node whose port 1000 is connectable:"
+    echo "     $progname 67.58.56 67 97 1 1000"
+    exit 1
+fi
+
+ip_prefix=$1
+if [[ ($# -ge 2) ]]; then
+  ip_min=$2
+fi
+if [[ ($# -ge 3) ]]; then
+  ip_max=$3
+fi
+if [[ ($# -ge 4) ]]; then
+  num=$4
+fi
+if [[ ($# -ge 5) ]]; then
+  port=$5
+fi
+
+#==============================
+# Main program
+#==============================
+found=0
+for (( i=$ip_min; i<=$ip_max && $found<$num; i++ ))
+do
+  ip="$ip_prefix.$i"
+  # Slow...
+  #up=`ping -W 1 -c 2 $ip | grep "transmitted" | grep ", 0% packet loss"`
+  #up=$?
+  #  if [ -n "$up" ]; then
+
+  # Much faster!
+  if netcat -w 1 -z $ip $port; then
+    echo "$ip" 
+    found=$[ $found + 1 ]
+  fi
+done

@@ -1,0 +1,39 @@
+#----------------------------------------------------------------
+# Find Hutt Affy SNPs that map to multiple chromosomes.
+#
+# Runs against a local UCSC+SNP database. Breaks the input file
+# into chunks < 65536, which seem to be the magic number for 
+# MySQL query slowness on my home desktop (the # of parts is
+# a user input).
+#
+# Author: Oren Livne
+# Date: 15-NOV-2012
+#----------------------------------------------------------------
+
+input="$1"
+out="$2"
+num_parts="$3"
+sql="${OBER}/code/db-gene/sql/snp_multiple_chr.sql"
+
+# Break input file into parts
+split -d -n ${num_parts} ${input} ${input}.part
+db="mysql -B -A -u ucsc -pucsc ucsc"
+
+# Process each part separately
+for (( i=0; i < num_parts; i++ )); do
+  part=`printf '%02d' ${i}`
+  # Substitute ${...} strings by environment variables in the SQL template file $sql
+  export INPUT_FILE="`to-unix-path \`pwd\`/${input}.part${part}`"
+  export OUTPUT_FILE="`to-unix-path \`pwd\`/${out}.part${part}`"
+  rm -rf ${OUTPUT_FILE}
+  cat $sql | replace-env-vars | $db
+done
+
+# Join all output parts into final output file. Could do that as part of
+# the previous loop but this way if we already have the parts we don't need
+# to re-run the entire script at this point, just call the code below to
+# be done.
+cat `find ${out}.part* | sort` > ${out}
+
+# Clean up
+rm -f ${input}.part* ${out}.part*

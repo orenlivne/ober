@@ -1,0 +1,271 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# The full phasing and imputation pipeline for a chromosome.
+#
+# Input: Hutteries Affymetrix plink binary data set, with genetic
+# coordinates in the bim file.
+#
+# Author: Oren E. Livne
+# Date:   01-MAR-2013
+#--------------------------------------------------------------------
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+BATCH_HOME="${OBER}/code/impute/batch"
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Start chromosome index to process 
+    start_chr=1
+    # End chromosome index to process 
+    stop_chr=22
+    # Clean output dir first
+    do_clean=false
+    # Generate pipeline files
+    do_create=false
+    # Run pipeline
+    do_run=false
+    # Execute phasing stage
+    do_phasing=false
+    # Debugging mode
+    verbose=false
+	
+    # Read input arguments
+    while getopts "hcgrpvs:e:" optionName; do
+	case "$optionName" in
+	    s) start_chr="$OPTARG";;
+	    e) stop_chr="$OPTARG";;
+	    c) do_clean=true;;
+	    g) do_create=true;;
+	    r) do_run=true;;
+	    p) do_phasing=true;;
+#	    i) do_ibd=true;;
+	    v) verbose=true;;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 1 ]]; then
+  	echo "Job name must be specified."
+	print_type_for_help
+    fi
+    job="$1"
+#    arch="$2"
+    arch="beagle"
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} <job-name>"
+    echo -e ""
+    echo -e "The full phasing and imputation pipeline for Beagle."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-s start-chr\tStart processing from this chromosome index. Default: ${start_chr}"
+    echo -e "\t-e stop-chr\tStop processing at this chromosome index. Default: ${stop_chr}"
+    echo -e "\t-p\t\tRun phasing stage. Useful to omit when phasing has already been completed."
+#    echo -e "\t-i\t\tRun IBD segment creation."
+    echo -e "\t-c\t\tClean the output directory first."
+    echo -e "\t-g\t\tGenerate the pipeline."
+    echo -e "\t-r\t\tRun the pipeline."
+    echo -e "\t-v\t\tVerbose mode. Print debugging printouts."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#=======================================
+# PBS job file creation
+#=======================================
+
+# Create submission script for phasing + pre-processing
+# TODO: pack jobs of all chromosomes here?
+function create_job_phasing
+{
+    chrom="$1"
+    file="$2"
+    cat <<EOF > $file.sh
+#!/bin/bash
+# Fetch chromosome data from master plink data set
+split-to-chr -s ${chrom} -e ${chrom} ${OBER_OUT}/phasing/hutt ${OBER_OUT}/phasing
+
+# Run phasing
+python ${OBER}/code/impute/bin/run_chr_phasing.py -c ${chrom}
+EOF
+    chmod +x ${file}.sh
+
+    cat <<EOF > $file
+#!/bin/bash
+#PBS -l walltime=01:00:00
+#PBS -l mppwidth=24
+#PBS -N phasing
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd \$PBS_O_WORKDIR
+
+aprun -n 1 -N 1 -d 1 ${file}.sh
+EOF
+}
+
+# Create submission script for segment post-processing
+function create_job_ibd_postprocess
+{
+    chrom="$1"
+    out1="$2"
+    out2="$3"
+    file="$4"
+    out=`dirname $file`
+    cat <<EOF > $file.sh
+#!/bin/bash
+# Clean old file if exists
+rm -f ${out}/segments.out
+# Create a master segment file
+cat \`find ${out1} -name "*.out" | paste -sd' '\` >  ${out}/segments.out
+cat \`find ${out2} -name "*.out" | paste -sd' '\` >> ${out}/segments.out
+cp ${out}/segments.out ${OBER_OUT}/phasing/chr${chrom}/segments.out
+echo "# segments found: \`wc -l ${out}/segments.out | awk {'print \$1'}\`"
+EOF
+    chmod +x ${file}.sh
+
+    cat <<EOF > $file
+#!/bin/bash
+#PBS -l walltime=00:10:00
+#PBS -l mppwidth=24
+#PBS -N ibd_postprocess
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd \$PBS_O_WORKDIR
+
+aprun -n 1 -N 1 -d 1 ${file}.sh
+EOF
+}
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+# Loop over chromosomes and create a pipeline of PBS scripts with dependencies
+for (( chrom = start_chr; chrom <= stop_chr; chrom++ )); do
+    echo "Creating pipeline, chromosome ${chrom}"
+    echo "---------------------------------"
+    #---------------------------------------------------
+    # Set up PBD scripts, directories
+    #---------------------------------------------------
+    out=${OBER_OUT}/${job}/chr${chrom}
+    echo ""
+    echo "Output dir: ${out}"
+
+    # Stores phasing results
+    job0=phasing
+    out0=${out}/${job0}
+
+    # Stores 98x98 IBD segments
+    job1=ibd_segments_98
+    out1=${out}/${job1}
+    sub_file1=${OBER}/code/impute/batch/${job1}.${arch}.sub
+    echo ""
+    echo "Job: ${job1}"
+    echo "Output dir: ${out1}"
+    echo "Configuration file: ${sub_file1}"
+
+    # Stores 98x1317 IBD segments
+    job2=ibd_segments_98_1317
+    out2=${out}/${job2}
+    sub_file2=${OBER}/code/impute/batch/${job2}.${arch}.sub
+    echo ""
+    echo "Job: ${job2}"
+    echo "Output dir: ${out2}"
+    echo "Configuration file: ${sub_file2}"
+
+    # Stores post-processing and final results
+    job3=ibd_postprocess
+    out3=${out}/${job3}
+        
+    if $do_clean; then
+    	echo "Cleaning ${out}"
+        rm -rf ${out} >& /dev/null
+    fi
+    mkdir -p ${out} ${out0} ${out1} ${out2} ${out3}
+    cd ${out}
+
+    #---------------------------------------------------
+    # Create pipeline files
+    #---------------------------------------------------
+    if $do_create; then      
+	# Create submission script for phasing + pre-processing
+	if $do_phasing; then
+	    echo "Creating phasing job file under ${out0}"
+	    create_job_phasing ${chrom} ${out0}/phasing.pbs
+	fi
+		
+	# Create submission scripts for IBD segment computation job
+	# if $do_ibd; then
+	echo "Creating IBD segment job files"
+	if $verbose; then
+	    VERBOSE_FLAGS="-v"
+	else
+	    VERBOSE_FLAGS=""
+	fi
+	pack_jobs.py ${VERBOSE_FLAGS} -t ${arch} -p chrom=chr${chrom},out=${out1} ${sub_file1} ${out1}
+	pack_jobs.py ${VERBOSE_FLAGS} -t ${arch} -p chrom=chr${chrom},out=${out2} ${sub_file2} ${out2}
+	
+	# Create submission script for segment post-processing
+	echo "Creating IBD post-processing job file under ${out3}"
+	create_job_ibd_postprocess ${chrom} ${out1} ${out2} ${out3}/ibd_postprocess.pbs
+    fi
+	
+    #---------------------------------------------------
+    # Run pipeline: spawn jobs in dependency order
+    #---------------------------------------------------
+    if $do_run; then      
+	cd ${out}
+	
+	echo "Running pipeline - submitting jobs"
+	# Phasing-IBD dependency
+	if $do_phasing; then
+	    phasing=`qsub ${out0}/phasing.pbs`
+	    ibd1=`qsub -W depend=afterok:${phasing} ${out1}/ibd_segments.pbs`
+	    ibd2=`qsub -W depend=afterok:${phasing} ${out2}/ibd_segments.pbs`
+	else
+	    ibd1=`qsub ${out1}/ibd_segments.pbs`
+	    ibd2=`qsub ${out2}/ibd_segments.pbs`
+	fi
+	
+	# IBD-(IBD-post-processing) dependency
+	if [ ${arch} == "beagle" ]; then
+	    opt="afterok"
+	else
+	    opt="afterokarray"
+	fi
+	ibd_postprocess=`qsub -W depend=${opt}:${ibd1}:${ibd2} ${out3}/ibd_postprocess.pbs`
+    fi
+done

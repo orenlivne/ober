@@ -1,0 +1,35 @@
+{% extends "layout.html" %}
+{% block body %}
+	{% if errors %}
+		<p class="error">
+		{% for error in errors %}
+			Error: {{ error }}<br/>
+		{% endfor %}
+		</p>
+	{% endif %}
+	
+  	{% if session.logged_in %}
+  	<p>
+  		Upload a comma-separated values file of variants you would like to annotate.
+  		Specify the chromosome and base-pair data columns (1=first column, etc.).
+  		An augmented file with annotation columns will be transferred back to your browser.
+  		<ul>
+  			<li>On Mac or Windows, save your file with Unix newlines before uploading.</li>
+    		<li>The first line in the file must be a header line.</li>
+    	</ul>
+    </p>
+    <form action="{{ url_for('annotate') }}" method="post" class="annotate" enctype="multipart/form-data">
+      <dl>
+        <dt><label>Chromsome Column #:</label></dt>
+        <dd><input type="text" size="2" name="chrom"></dd>
+        
+        <dt><label>Base-pair Column #:</label></dt>
+        <dd><input type="text" size="2" name="bp"></dd>  
+              
+        <dt><label>Upload File:</label></dt>
+        <dd><input type="file" name="file" /></dd>
+        <dd><input type="submit" value="Upload" /></dd>
+      </dl>
+    </form>
+  {% endif %}
+{% endblock %}

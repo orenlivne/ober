@@ -1,0 +1,3 @@
+#!/bin/bash
+# Expand a CSV line fields to separate lines and add numbering
+tr '\t' '\n'  | nl

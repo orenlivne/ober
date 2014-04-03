@@ -1,0 +1,97 @@
+-- Hutterites CGI variant annotation database:
+-- A script to create database and account
+-- Run with cat create-db.mysql | mysql -uroot -p<root password>
+
+drop database if exists `hutt`;
+create database `hutt`;
+grant all on `hutt`.* to 'hutt'@'localhost' identified by 'hutt';
+use hutt;
+
+-- Schema
+-- TODO: add indices
+create table hutt (
+       record_id int not null auto_increment,
+       record_hash varchar(100) not null unique, -- a unique identifier - hash formed from chr,bp_start,bp_end,vartype
+       cgi_variant_id int, -- CGI variant ID, unique identifier of Jessica's variants from the listvariants program
+       chromosome int not null,     -- Chromosome number
+       bp_start bigint not null,          -- Variant begin position [bp]
+       bp_end bigint not null,           -- Variant end position [bp]
+       vartype varchar(3) not null,         -- Variant type (SNP/indel/sub)
+       xref varchar(100) not null ,           -- dbSNP137 annotation
+       is_complex boolean,     -- Is complex (SNP/sub only, if at least one call partially overlaps [begin,end]
+       is_HH boolean,          -- Are all WGS calls of high-high quality for this variant?
+       is_VQHIGH boolean,      -- Does this variant pass the VQHIGH filter of CGI's listvariants cgatools command?
+       is_ceu boolean,         -- Is this variant in 1000 genomes CEU?
+       allele_ref varchar(20),     -- Reference allele
+       allele_alt_ceu varchar(20), -- CEU alternative allele
+       allele_alt_hutt varchar(20), -- Hutterites alternative allele
+       aaf_ceu float,        -- CEU alternative allele frequency (AAF)
+       aaf_cgi float,        -- WGS Hutterite AAF
+       aaf_imputed float,     -- WGS+Imputed Hutterites AAF
+       ibd2_con int,        -- --concordant IBD2 segments containing this variant
+       ibd2_tot int,       -- total --IBD2 segments containing this variant
+       ibd2_rate float,      -- ibd2_con/ibd2_tot
+       cgi_00 int,         -- Number of 00 calls among WGS CGI samples (homozygous reference)
+       cgi_01 int,         -- Number of 01 calls among WGS CGI samples (heterozygous)
+       cgi_11 int,         -- Number of 11 calls among WGS CGI samples (homozygous alternative)
+       cgi_NN int,         -- Number of NN calls among WGS CGI samples (missing)
+       cgi_call_rate float,
+       phasing_NN int,      -- Imputation: number of NN calls among WGS samples after phasing them
+       phasing_N0 int,     -- -- phased WGS that were assigned N0 (ordered haplotypes)
+       phasing_N1 int,     -- Same, -- 1N phased calls
+       phasing_0N int,     -- Same, -- 0N phased calls
+       phasing_00 int,     -- Same, -- 00 phased calls
+       phasing_01 int,     -- Same, -- 01 phased calls
+       phasing_1N int,     -- Same, -- 1N phased calls
+       phasing_10 int,     -- Same, -- 10 phased calls
+       phasing_11 int,     -- Same, -- 11 phased calls
+       phasing_call_rate_allele float, -- Number of partially-phased (non-NN) WGS CGI samples
+       phasing_call_rate float,        -- Number of fully phased (no N letter) WGS CGI samples
+       imputed_NN int,     -- Same as phasing_, but with imputed genotypes (again, these are ordered)
+       imputed_N0 int,
+       imputed_N1 int,
+       imputed_0N int,
+       imputed_00 int,
+       imputed_01 int,
+       imputed_1N int,
+       imputed_10 int,
+       imputed_11 int,
+       imputed_call_rate_allele float,
+       imputed_call_rate float,
+       po_NN int,          -- Same as phasing_ for number of haplotypes that were assigned parental origin
+       po_N0 int,         -- (ordered as paternal,maternal)
+       po_N1 int,
+       po_0N int,
+       po_00 int,
+       po_01 int,
+       po_1N int,
+       po_10 int,
+       po_11 int,
+       po_call_rate_allele float,
+       po_call_rate float,
+       ld_NN int,          -- Same as phasing for number of (unordered) genotypes called by the IMPUTE2
+       ld_N0 int,          -- LD method
+       ld_N1 int,
+       ld_0N int,
+       ld_00 int,
+       ld_01 int,
+       ld_1N int,
+       ld_10 int,
+       ld_11 int,
+       ld_call_rate_allele float,
+       ld_call_rate float,
+       var_region varchar(30),        -- Intergenic/intronic/... from Annovar
+       var_func varchar(100),         -- Functional annotation from Annovar
+       var_mutation varchar(30),      -- Nonsense/missense/... from Annovar
+       var_polyphen_score float,      -- PolyPhen2 score
+       var_polyphen_pred varchar(1),  -- Prediction (B=benign, P=possibly damaging D=damaging)
+       is_qc boolean,           -- Does variant pass our QC process (based on IBD-2 checks that led to call rate thresholds)?
+       is_singleton boolean,    -- Is this variant a singleton?
+       is_known boolean,        -- Is this an known variant (annotated with an RS number) or novel?
+       maf_ceu float,           -- CEU minor allele frequency (MAF)
+       maf_cgi float,           -- WGS Hutterite MAF
+       maf_imputed float,       -- WGS+Imputed Hutterites MAF
+       primary key(record_id),
+       index index_chromosome_pos (chromosome, bp_end),
+       index index_cgi_variant_id (cgi_variant_id)
+);

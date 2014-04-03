@@ -1,0 +1,25 @@
+<VirtualHost *>
+    ServerName example.com
+ 
+    WSGIDaemonProcess www user=oren group=oren threads=5
+    WSGIScriptAlias / /home/oren/ober/code/annotate/flask-upload.wsgi
+ 
+    <Directory /home/oren/ober/code/annotate>
+        WSGIProcessGroup www
+        WSGIApplicationGroup %{GLOBAL}
+        Order deny,allow
+        Allow from all
+        Require all granted
+    </Directory>
+</VirtualHost>
+
+#----------------------------------------------------
+# The following works within a global Apache config file's <VirtualHost> element:
+
+        # WSGI Configuration of Hutterites annotation web service
+        WSGIScriptAlias /annotate /home/oren/ober/code/annotate/flask-upload.wsgi
+        <Directory /home/oren/ober/code/annotate>
+          Order allow,deny
+          Allow from all
+          Require all granted
+        </Directory>

@@ -1,0 +1,7 @@
+#!/bin/bash
+file=twiki_`date +"%Y-%m-%d"`.tgz
+tar cvfz $file /opt/twiki >& /dev/null
+echo "Copying to laptop"
+scp $file oren@205.208.52.211:twiki
+echo "See Laptop file twiki/$file" | mail -s "Twiki Backed Up" livne@uchicago.edu
+rm -f $file

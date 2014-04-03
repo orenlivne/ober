@@ -1,0 +1,24 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Extract gene coordinates from UCSC's HG19 refGene file.
+# 
+# Author: Oren E. Livne
+# Date:   16-JUL-2012
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 2 ]; then
+  echo "Usage: ${PROGNAME} <gene-name> <margin-bp>"
+  echo ""
+  echo "Extract gene start and end points from UCSC's HG19 refGene file. Added margin-bp base pairs"
+  echo "upsteam and downstream. Serves as an input to extract_genotypes.py."
+  echo ""
+  echo "DOES NOT DEAL WITH BOUNDARY CASES NEXT TO BP=0,end of chromosome. Be careful that the margin is not too large." 
+  exit $E_BADARGS
+fi
+gene="$1"
+margin="$2"
+curl -s "http://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/refGene.txt.gz" | gunzip -c | grep -m 1 $gene | awk "{printf \"%s %d %d\n\", \$3, \$5-${margin}, \$6+${margin}}" | sed "s/chr//"

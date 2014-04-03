@@ -1,0 +1,29 @@
+#!/bin/bash
+##**************************************************************
+## A simple script that splits a file into parts.
+## 
+## Oren Livne
+## 08-SEP-2011
+##**************************************************************
+
+if [ $# -ne 2 ]
+then
+    echo "Usage: `basename $0` <inputFile> <numberOfParts>"
+    echo ""
+    echo "Splits a file into numberOfParts parts. Supports at most 10 parts."
+    exit -1
+fi
+
+input=$1
+numParts=$2
+
+if [[ $numParts -gt 10 ]]; then
+    echo "Up to 10 parts are supported."
+    exit -1
+fi
+
+totalLines=`wc -l $input | awk '{print $1}'`
+linesPerPart=$(( $totalLines/$numParts ))
+
+parts=(${input//./ })
+split -l $linesPerPart -d -a 1 $input ${parts[0]}

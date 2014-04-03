@@ -1,0 +1,105 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Fetch RS#, chr# and base pair position from the manifest CSVs
+# of the Illumina CytoSNP or the OmniExpress chip, downloaded
+# from the Illumina Website. Extract imputed genotypes.
+# Convert to PLINK BED format.
+# 
+# Author: Oren E. Livne
+# Date:   11-JUL-2013
+#----------------------------------------------------------------
+
+# Parameters
+chips="cytosnp omniexpress"
+#chips="cytosnp"
+work_dir="${OBER_OUT}/kids"
+id_coef="${OBER_DATA}/hutt/hutt.id" # Identity coefficients of all sample pairs
+start_chrom="22"
+end_chrom="22"
+
+# Constants
+CACHE_DIR="${OBER}/data/common/db/cache"
+PLINK="plink --noweb --nonfounders"
+FAM_PATH="${OBER}/testdata/pedigree/hutterites.genotyped.tfam"
+
+# Extract data for each chip
+mkdir -p ${work_dir}/all-chips
+for chip in $chips; do
+  ${OBER_CODE}/impute/impute/kids/illumina-extract-imputed-chip ${work_dir} ${chip} ${start_chrom} ${end_chrom} 1
+done
+
+# Create a BIM with the union of all Hutt chips (Affy + prospective Illumina extract above)  
+echo "-- Create BIM with union of SNPs from all platforms"
+if [ ! -f "${work_dir}/all-chips/all-chips.bim" ]; then
+  cat ${OBER_DATA}/hutt/hutt.3chipoverlap.clean.bim `for chip in $chips; do echo "${work_dir}/${chip}/${chip}.imputed.bim"; done | paste -sd' '` | awk 'x[$2]++ == 0 { print $0 }' | \
+  sort -k 1,1n -k 4,4n > ${work_dir}/all-chips/all-chips.bim
+fi
+
+# Update SNP genetic coordinates table database
+echo "-- Update genetic coordinates database table"
+cache_dir="${OBER_DATA}/common/db/cache"
+if [ $OSTYPE == 'cygwin' ]; then
+  cache_dir=`cygpath ${cache_dir}`
+fi
+if [ ! -f "${work_dir}/db.lock" ]; then
+    # Clear cache and recreate SNP table
+    echo "  Clearing cache"
+    echo "delete from snp" | mysql -B -A -u ucsc -pucsc ucsc
+    rm -f ${cache_dir}/snp.nof
+fi
+create-snp-db -o ${cache_dir} -b ${work_dir}/all-chips/all-chips.bim
+touch ${work_dir}/db.lock
+
+# Save LD between SNP pairs of all chips that are in r^2 > 0.3 to database (for frame pruning)
+if [[ ! -f ${work_dir}/ld.txt ]]; then
+    # Create master LD file
+    cat `for chip in $chips; do echo ${chip}/ld/ld.txt; done | paste -sd' '` > ${work_dir}/ld.txt
+    # Clear database cache
+    rm ${CACHE_DIR}/ld*
+    mysql -A -u ucsc -pucsc ucsc --exec "drop table ld"
+    # Update database with new data
+    create-snp-db -l ${work_dir}/ld.txt
+fi
+
+echo "-- Creating PLINK data sets = input for phasing"
+for chip in $chips; do
+    # Add genetic coordinates to chip BIM files
+    data_set="${work_dir}/${chip}/${chip}.imputed"
+    if [ ! -f "${data_set}.bim.old" ]; then
+	echo "  Adding genetic coordinates to BIM file ${bim}"
+        # PLINK TPED with full genotypes -> PLINK PED
+	${PLINK} --tped ${data_set}.full.tped --tfam ${FAM_PATH} --make-bed --out ${data_set}
+	split-to-chr -b ${data_set} .
+	mv ${data_set}.bim ${data_set}.bim.old
+	mv ${data_set}.bim.new ${data_set}.bim
+    fi
+
+    # Crate chromosomal PLINK data sets that are the input for phasing
+    for chrom in `seq ${start_chrom} ${end_chrom}`; do
+	chr_dir="${work_dir}/${chip}/chr${chrom}"
+        if [ ! -d "${chr_dir}" ]; then
+          echo "  Split, chromosome ${chrom}"
+	  # Create PLINK TPED data set
+  	  split-to-chr -i ${id_coef} -s ${chrom} -e ${chrom} ${data_set} ${work_dir}/${chip}
+
+	  # Restore partial genotypes and haplotype ordering (basically, a manual equivalent of plink's recode12
+	  # that preserves the original allele ordering
+	  awk -v chrom=${chrom} '$1 == chrom' ${data_set}.tped > ${chr_dir}/letter.tped
+	  paste <(awk -v chrom=${chrom} '$1 == chrom' ${data_set}.bim | cut -f 1-4 | tr '\t' ' ') <(cut -d' ' -f 5-10000000 ${chr_dir}/letter.tped) | awk '$3 > 0' > ${chr_dir}/letter-cm.tped
+	  awk '{ if (NR==FNR) {a[FNR]=$3; b[FNR]=$4; } else { printf "%s %s %s %s", $1,$2,$3,$4; m["0"]="0"; m[a[FNR]]="1"; m[b[FNR]]="2"; for (i=5; i<=NF; i+=2) { printf " %s %s", m[$i], m[$(i+1)];} printf "\n"; } }' <(awk '($2 != "0") && ($3 != "0")' ${chr_dir}/${chip}.imputed.frq | sed '1d') ${chr_dir}/letter-cm.tped > ${chr_dir}/${chip}.imputed.tped
+
+          # Convert (ordered haplotype) PLINK TPED to NPZ
+	  ${OBER_CODE}/impute/impute/preprocess/convert.py -v -t npz -g ${chr_dir}/${chip}.imputed -p ${OBER}/testdata/pedigree/hutterites.tfam -q ${OBER}/testdata/pedigree/hutterites.genotyped.tfam -z ${chr_dir}/${chip}.imputed.npz
+	fi
+    done
+done
+
+# Also extract Affy data for imputation validation
+chip="affy"
+for chrom in `seq ${start_chrom} ${end_chrom}`; do
+    chr_dir="${work_dir}/${chip}/chr${chrom}"
+    if [ ! -d "${chr_dir}" ]; then
+	mkdir -p ${chr_dir}
+	cp ${OBER_OUT}/phasing/chr${chrom}/hutt* ${chr_dir}
+    fi
+done

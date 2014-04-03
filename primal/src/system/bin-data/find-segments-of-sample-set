@@ -1,0 +1,29 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Find IBD segments among of all samples in a comma-delimited
+# list in segment stdin data.
+# 
+# Author: Oren E. Livne
+# Date:   16-AUG-2013
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 1 ]; then
+  echo "Usage: ${PROGNAME} id1,id2,...,idn"
+  echo ""
+  echo "Find IBD segments among of all samples in a comma-delimited"
+  echo "list in segment stdin data."
+  exit $E_BADARGS
+fi
+awk -v idstr=$1 'BEGIN { cnt = split(idstr,ids,","); } { \
+found1 = 0; found2 = 0; \
+for (i = 1; i <= cnt; i++) { \
+  if ($5 == ids[i]) found1 = 1; \
+  if ($7 == ids[i]) found2 = 1; \
+  if (found1 && found2) break; \
+} \
+if (found1 && found2) print $0; \
+}' 

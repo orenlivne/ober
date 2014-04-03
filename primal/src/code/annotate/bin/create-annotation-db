@@ -1,0 +1,458 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Create a master annotation MySQL database for the union of
+# William's and Oren's (=Jessica's VQHIGH-filtered) variants.
+#
+# - Add a CGI variant column to WWS CGI variant annotation files.
+# - Create a mysql annotation database
+# - Load data into database.
+# 
+# Author: Oren E. Livne
+# Date:   10-DEC-2013
+#----------------------------------------------------------------
+
+#=======================================
+# Constants
+#=======================================
+# Notation: AAF = alternative allele frequency
+
+# Number of WGS samples. Required for William's file - harder to calculate on-the-fly from his data
+# but should be possible in the future. Or add as program flags for portability. TODO: implement that.
+num_wgs_samples="98"
+
+# Location of remote data files
+wws_remote=$beagle:/lustre/beagle/ober/resources/CGI/README.98HUTT/varquality-analysis-2013-04-30/OUT
+oren_remote=$beagle:/lustre/beagle/ober/users/oren/out/impute_cgi/count2
+
+# Local directories
+data_dir="genome-data" # Local data directory
+ceu_dir="${OBER_OUT}/impute_cgi/annotations/1000-genomes" # 1000 genomes annotation directory
+src="${OBER}/code/annotate/bin" # Script directory
+
+# MySQL connection parameters (hard-coded for now)
+MYSQL="mysql -h 127.0.0.1"
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%	
+    # Create flat data file or not
+    create_data=false
+	# Populate database after creating flat data file
+	populate_db=false
+	# Name of flat data file
+	data_file="data.mysql.qc"
+
+    # Read input arguments
+    while getopts "hdcf:" optionName; do
+	case "$optionName" in
+	    c) create_data=true;;
+	    d) populate_db=true;;
+	    f) data_file="${OPTARG}";;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 0 ]]; then
+  	echo "No arguments should be specified."
+	print_type_for_help
+    fi
+    
+    if [[ ( ${create_data} != true ) && ( ${populate_db} != true ) ]]; then
+    	echo "Must specify a command (create or populate database)."
+		print_type_for_help
+    fi
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME}"
+    echo -e ""
+    echo -e "Create the Hutterite variant annotation database."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-c\t\tCreate the flat data file."
+    echo -e "\t-d\t\tImport the flat data file into the MySQL database."
+    echo -e "\t-f data-file\tName of flat data file to generate/import to the MySQL database."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit ${E_BADARGS}
+}
+
+#=======================================
+# Business Logic
+#=======================================
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+#------------------------
+# Create flat data file
+#------------------------
+if $create_data; then
+
+# Create header explanation file (makes it easier to find them when writing awk programs)
+if [ ! -f wws.headers ]; then
+    echo "Retrieving wws data ..."
+    rm -f wws-annotations.txt
+    rsync -auqP $wws_remote/chr000_*.tsv ${data_dir}/
+    # CEU reference allele file
+#    rsync -auvP $beagle:/lustre/beagle/ober/users/wws/to_oren/hg19_EUR.sites.2012_04.txt ./
+    ( echo "vartype"; head -1 ${data_dir}/chr000_ins.tsv | tr '\t' '\n' ) | nl  > wws.headers
+    chmod 644 chr000_*.tsv
+fi
+
+# Merge wws variant type files into one big file with an additional vartype column (= first column)
+# Remove tri-allelic variants (columns 15-19 = het_alt_* non-zero indicates that)
+if [ ! -f wws-annotations.txt ]; then
+    echo "Merging wws files; filtering non-bi-allelic variants ..."
+    rm -f wws.hash
+    for t in snp ins del sub; do
+	sed -e '1d' -e 's/".*"/TBA/' ${data_dir}/chr000_$t.tsv | awk -F $'\t' -v t=$t '{ if ($15+$16+$17+$18 == 0) { printf "%s\t%s\n", t, $0; } }'
+    done > wws-annotations.txt
+fi
+
+# Create a unique identifier column of rows in both wws, oren files =
+# hash of chr, start position, end position, vartype.
+if [ ! -f wws.hash ]; then
+    echo "Adding hash to wws file ..."
+    rm -f wws-with-id.txt
+    paste \
+	<(cat wws-annotations.txt | awk -F $'\t' '{printf "%s_%s_%s_%s\n", $2, $3, $4, $1;}') \
+	wws-annotations.txt | sort -k 1,1 > wws-with-hash.txt
+    awk -F $'\t' '{print $1}' wws-with-hash.txt > wws.hash
+fi
+
+# Create a file of CGI imputation annotations. This is for the list of variants originally compiled
+# by Jessica. Remove duplicate hash values - these are "complex" variants/copy-number-variation that Carole
+# decided to ignore (e.g., 3 insertions at the same position, with T, TT, TTT alternative alleles, respectively).
+if [[ ( ! -f oren.raw ) || ( ! -f ${data_dir}/count.txt ) || ( ! -f ${data_dir}/annotations.txt ) ]]; then
+    echo "Creating oren annotation file; removing duplicate records ..."
+    rm -f oren-annotations-with-hash.txt
+    rsync -auqP $oren_remote/count.txt ${data_dir}/
+    rsync -auqP $oren_remote/annotations.txt ${data_dir}/
+    paste \
+	<( sed -e 's/^\(.*\)chr/\1/' ${data_dir}/annotations.txt | sed -e 's/ /\t/g') \
+	<(sed -e 's/ /\t/g' ${data_dir}/count.txt) \
+	| sort -k 1,1 > oren.raw
+fi
+if [ ! -f oren-annotations-with-hash.txt ]; then
+    echo "Adding hash to oren file ..."
+    rm -f oren.hash_cgi wws-with-id.txt oren.overridden.mysql oren.mysql
+    awk -F $'\t' '{printf "%s_%s_%s_%s\n", $2, $3, $4, $5;}' oren.raw | sort | uniq -u > oren.hash
+    join -j 1 -t $'\t' \
+	oren.hash \
+	<(awk -F $'\t' '{printf "%s_%s_%s_%s\t%s\n", $2, $3, $4, $5, $0;}' oren.raw | sort -k 1,1) \
+	> oren-annotations-with-hash.txt
+fi
+
+# Create a file that contains only hash, CGI columns, this is all we need from the oren file. Also create
+# a hash file - useful for joining
+if [ ! -f oren.hash_cgi ]; then
+    echo "Adding hash to oren file ..."
+    rm -f wws-with-id.txt
+    awk -F $'\t' '{printf "%s\t%s\n", $1, $2;}' oren-annotations-with-hash.txt > oren.hash_cgi
+fi
+
+# For all wws variants that are not oren variants, set CGI variant column to NULL.
+# If they are oren variants, copy CGI variant column from oren.
+#
+# Column ordering:
+# is_VQHIGH
+# CGI variant ID, unique identifier
+# rest of William's columns
+if [ ! -f wws-with-id.txt ]; then
+    echo "Populating CGI ID column in wws file ..."
+    rm -f wws-not-in-oren.txt wws-in-oren.txt
+    joined_cols=$(( `head -1 wws-with-hash.txt | awk -F $'\t' '{print NF}'` + 1 ))
+    # Find all wws variants that are oren variants, copy CGI variant column from oren to wws
+    join -a2 --check-order -j 1 -t $'\t' oren.hash_cgi wws-with-hash.txt | \
+	awk -F $'\t' -v joined_cols=${joined_cols} '{ if (NF == joined_cols) printf "1\t%s\n", $0; else \
+        { printf "0\t%s\tNULL", $1; for (i = 2; i <= NF; i++) printf "\t%s", $i; printf "\n"; } }' > wws-with-id.txt
+fi
+
+if [ ! -f wws-not-in-oren.txt ]; then
+    rm -f override.txt
+    awk -F $'\t' '$3 == "NULL"' wws-with-id.txt > wws-not-in-oren.txt
+    awk -F $'\t' '$3 != "NULL"' wws-with-id.txt > wws-in-oren.txt
+fi
+
+# Create fields in the intersection of wws, oren that are to be overridden in the oren file
+if [ ! -f override.txt ]; then
+    echo "Preparing wws+oren intersection file ..."
+    cat wws-in-oren.txt | \
+	awk -F $'\t' -v num_wgs_samples=${num_wgs_samples} \
+	'{ \
+           a0 = 2*$9  + $15; \
+           a1 = 2*$11 + $15; \
+           b  = a0 + a1 + 1e-15; aaf_cgi = a1/b; \
+           printf "%s\t%f\t%d\t%d\t%d\t%d\t%f\n", \
+                   $2, aaf_cgi, $9, $15, $11, \
+                   num_wgs_samples - ($9+$15+$11), (1.0*($9+$15+$11))/num_wgs_samples; \
+         }' > override.txt
+fi
+
+# Convert oren annotations into a file that can be loaded into the data
+# oren-annotation-with-hash.txt format:
+# 10_10000017_10000018_snp 7275570 10 10000017 10000018 snp A G dbsnp.116:rs6602381 7275570 snp (1-11)
+# 47 0 0 0 35 12 0 0 4 0.520408 0.520408 (cgi 12-22 - later overridden by William's more precise counts if in William's file)
+# 6 10 2 9 41 11 3 10 6 0.938776 0.693878 (phasing 23-33)
+# 130 161 67 123 407 154 62 151 62 0.901291 0.587699 (imputed 34-44)
+# 198 167 66 123 429 151 62 152 67 0.860071 0.564664 (po 45-55)
+# 1415 0 0 0 0 0 0 0 0 0.000000 0.000000 (ld 56-66)
+#
+# Note: imputed AAF is computed using both WGS + imputed samples. Using Oren's CGI call counts for this -
+# doesn't matter much since the AAF is a population estimate and should not be affected much by weather it's
+# Oren's or William's CGI call counts.
+if [ ! -f oren.mysql ]; then
+    rm -f oren.tmp
+    echo "Preparing oren mysql file ..."
+    cat oren-annotations-with-hash.txt | \
+    awk -F $'\t' \
+	'{ \
+           a0 = (2*$17 + $18) + ($36 + $38 + 2*$39 + $40 + $42); \
+           a1 = (2*$21 + $18) + ($37 + $40 + $41 + $42 + 2*$43); \
+           b  = a0 + a1 + 1e-15; aaf_imputed = a1/b; \
+           cgi_call_rate = 1.0 - $13/($17 + $18 + $21 + $13); \
+           printf "%d\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t0\t0\t1\t0\t%s\tNULL\t%s\t0.0\t0.0\t%f\t0\t0\t0.0\t%d\t%d\t%d\t%d\t%f", 
+                  NR, $1, $2, $3, $4, $5, $6, $9, $7, $8, aaf_imputed, \
+                  $17, $18, $21, $13, cgi_call_rate; \
+           for (i = 24; i <= 67; i++) printf "\t%s", $i; \
+           printf "\n";
+         }' > oren.mysql
+fi
+
+# Override oren file with wws CGI genotype count fields (update the intersection of oren+wws)
+# Overridden fields in joined file (old and new column numbers):
+# 1 hash          1
+# 2 aaf_cgi       17
+# 3 cgi_00        22
+# 4 cgi_01        23
+# 5 cgi_11        24
+# 6 cgi_NN        25
+# 7 cgi_call_rate 26
+# o = offset = 6 for oren columns
+added_cols=$(( `head -1 override.txt | awk -F $'\t' '{print NF}'` - 1 )) # Not including hash col that we join on
+joined_cols=$(( `head -1 oren.mysql | awk -F $'\t' '{print NF}'` + added_cols ))
+if [ ! -f oren.tmp ]; then
+    echo "Overriding oren with wws values ..."
+    rm -f oren.overridden.mysql
+    # For all oren variants that are wws variants, override added cols
+    join -a2 --check-order -1 1 -2 2 -t $'\t' override.txt oren.mysql > oren.tmp
+fi
+if [ ! -f oren.overridden.mysql ]; then
+    rm -f wws-not-in-oren.mysql
+    awk -F $'\t' -v joined_cols=${joined_cols} -v o=$(( added_cols )) \
+	'{ \
+           if (NF == joined_cols) \
+           { \
+             printf "%s\t%s", $(o+2), $1;
+             for (i = o+3 ; i <= o+16; i++) printf "\t%s", $i;
+             printf "\t%s", $2;
+             for (i = o+18; i <= o+21; i++) printf "\t%s", $i;
+             for (i = o+22; i <= o+26; i++) printf "\t%s", $(i-o-19);
+             for (i = o+27; i <= NF  ; i++) printf "\t%s", $i;
+           } \
+           else \
+           { \
+             printf "%s\t%s", $2, $1;
+             for (i = 3; i <= NF; i++) printf "\t%s", $i;
+           } \
+           printf "\n";
+         }' oren.tmp > oren.overridden.mysql
+fi
+
+# Convert wws variants that are not oren variants into a format that can be inserted into the database
+# 0 10_10000010_10000011_snp NULL snp 10 10000010 10000011 - (cols 1-8)
+# 72 (col 9: hom ref)
+# 25 (col 10: other)
+# 0 0 0 0 (cols 11-14: hom_*)
+# 0 0 0 1 (cols 15-18: het_ref_*)
+# 0 0 0 0 (cols 19-22: het_alt_*)
+# 0.0 (col 23: HH rate)
+# 7 7 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 7 7 1.0 (cols 24-58: IBD2 segments)
+#
+# Prepare master MySQL data file - all.mysql - containing both oren and wws data in database schema structure.
+if [ ! -f wws-not-in-oren.mysql ]; then
+    echo "Preparing wws mysql file ..."
+    rm -f all.mysql
+    cat wws-not-in-oren.txt | \
+    awk -F $'\t' -v num_wgs_samples=${num_wgs_samples} -v offset=$( tail -1 oren.overridden.mysql | cut -f 1 ) \
+	'{ \
+           a0 = 2*$9  + $15; \
+           a1 = 2*$11 + $15; \
+           b  = a0 + a1 + 1e-15; aaf_cgi = a1/b; \
+           printf "%d\t%s\t0\t%d\t%d\t%d\t%s\tNULL\t0\t%d\t0\t0\tNULL\tNULL\tNULL\t0.0\t%f\t0.0\t%d\t%d\t%f\t%d\t%d\t%d\t%d\t%f", \
+             offset + NR, $2, $5, $6, $7, $4, \
+             ($12 + $13 + $14 + $16 + $17 + $18 == 0), \
+             aaf_cgi, \
+             $56, $57, $58, \
+             $9, $15, $11, num_wgs_samples - ($9+$15+$11), (1.0*($9+$15+$11))/num_wgs_samples; \
+           for (i = 26; i <= 69; i++) printf "\t0";
+           printf "\n";
+         }' > wws-not-in-oren.mysql
+fi
+if [ ! -f all.mysql ]; then
+    rm -f data.tmp
+    ( cat oren.overridden.mysql wws-not-in-oren.mysql ) | sort -k 2,2 > all.mysql
+fi
+
+# Extract CEU columns; join with MySQL data 
+# CEU file format:
+# hash_code is_ceu maf_ceu ref_allele alt_allele xref functional_annotation1 functional_annotation2
+# 22_16050035_16050036_snp        0       0.0     A       C       -       intergenic      NONE(dist=NONE),POTEH(dist=206296) MISSENSE
+# 22_16050407_16050408_snp        1       0.06    T       C       rs2844883       intergenic      NONE(dist=NONE),POTEH(dist=205924) NONSENSE
+# ...
+if [ ! -f ceu.mysql ]; then
+    rm -f data.tmp
+    ( for chrom in `seq 1 22`; do sed '1d' ${ceu_dir}/chr${chrom}/hutt96_hg19.genome_summary.csv; done )|\
+	extract_ceu_fields.py | sort -k 1,1 > ceu.mysql
+
+    # Remove duplicate hash values (variants at the same position with potentially different minor
+    # alleles - could be tri-allelic. We decided to ignore those).
+    join -t $'\t' -1 1 <(awk '{print $1}' ceu.mysql | uniq -u) ceu.mysql > tmp && mv tmp ceu.mysql
+fi
+# #columns not including the hash col we're joining on
+added_cols=$(( `head -1 ceu.mysql | awk -F $'\t' '{print NF}'` - 1 ))
+joined_cols=$(( `head -1 all.mysql | awk -F $'\t' '{print NF}'` + added_cols ))
+if [ ! -f data.tmp ]; then
+    echo "Overriding oren with wws values ..."
+    rm -f data.mysql
+    # For all oren variants that are wws variants, override added cols
+    join -a1 --check-order -1 2 -2 1 -t $'\t' all.mysql ceu.mysql > data.tmp
+fi
+# Find potentially tri-allelic variants; remove from data
+if [ ! -f oren.duplicates ]; then
+    rm -f data.mysql
+    awk -F $'\t' '{printf "%s_%s_%s_%s\n", $2, $3, $4, $5;}' oren.raw | sort | uniq -d > oren.duplicates
+fi
+# Use xref (rs number) from CEU Annovar file ($75) if exists; if not leave the CGI entry ($8 awk variable)
+# data.mysql should have 72 fields in every row
+if [ ! -f data.mysql.tmp ]; then
+    rm -f data.mysql
+fi
+if [ ! -f data.mysql ]; then
+    rm -f ${data_file} aaf.txt
+    cat data.tmp | \
+    awk -F $'\t' -v joined_cols=${joined_cols} \
+	'{ \
+           if (NF == joined_cols) \
+           { \
+             printf "%s", $1;
+             for (i = 2 ; i <= 7; i++) printf "\t%s", $i;
+             if ($75 == "-") xref=$8; else xref=$75;
+             printf "\t%s", xref;
+             for (i = 9 ; i <= 11; i++) printf "\t%s", $i;
+             printf "\t%s\t%s\t%s\t%s\t%s", $71, $73, $74, $15, $72;
+             for (i = 17; i <= 70; i++) printf "\t%s", $i;
+             for (i = 76; i <= joined_cols; i++) printf "\t%s", $i;
+           } \
+           else {
+             printf "%s", $1;
+             for (i = 2 ; i <= NF; i++) printf "\t%s", $i;
+             for (i = 76; i <= joined_cols; i++) printf "\t-";
+           } \
+           printf "\n";
+         }' > data.mysql.tmp
+    # Remove complex/duplicates in oren data set
+    join  -t $'\t' data.mysql.tmp <(comm -23 <(awk '{print $1}' data.mysql.tmp) oren.duplicates) > data.mysql
+fi
+
+# Prepare QC-filtered variant file
+# Add 6 last fields ==> 78 columns
+if [ ! -f ${data_file} ]; then
+    awk -F $'\t' \
+	'{ \
+          if ($16 <= 0.5) maf_ceu     = $16; else maf_ceu     = 1 - $16;
+          if ($17 <= 0.5) maf_cgi     = $17; else maf_cgi     = 1 - $17;
+          if ($18 <= 0.5) maf_imputed = $18; else maf_imputed = 1 - $18;
+          singleton = ($23 == 1) && ($24 == 0); \
+          singleton_ins = singleton && ($7 == "ins"); \
+          if (match($8, /.*rs./)) { rs = 1; } else { rs = 0; } \
+          cr = $26; \
+          \
+          is_qc = ((singleton_ins && (cr >= 0.99)) || \
+                  (!singleton_ins && ((rs && (cr >= 0.9)) || (!rs && (cr >= 0.99))))); \
+          \
+          printf "%s\t%s\t", NR, $1; \
+          for (i = 3; i <= NF; i++) printf "%s\t", $i; \
+          printf "%d\t%d\t%d\t%f\t%f\t%f\n", is_qc, singleton, rs, maf_ceu, maf_cgi, maf_imputed; \
+        }' data.mysql > ${data_file}
+fi
+
+# A quick-and-dirty QC breakdown report. Replace by db queries.
+if false; then
+    echo "QC breakdown:"
+    printf "Singleton insertions:" `awk '($23 == 1) && ($24 == 0) && ($7 == "ins")' data.mysql | wc -l`
+    printf "Included:" `awk '($23 == 1) && ($24 == 0) && ($7 == "ins" && ($26 >= .99))' data.mysql | wc -l`
+    printf "Non-singleton-insertions, with RS #:" `awk '(!(($23 == 1) && ($24 == 0) && ($7 == "ins")) && match($8, /.*rs./))' data.mysql | wc -l`
+    printf "Included:" `awk '(!(($23 == 1) && ($24 == 0) && ($7 == "ins")) && match($8, /.*rs./)) && ($26 >= .9)' data.mysql | wc -l`
+    printf "Non-singleton-insertions, novel:" `awk '(!(($23 == 1) && ($24 == 0) && ($7 == "ins")) && !match($8, /.*rs./))' data.mysql | wc -l`
+    printf "Included:" `awk '(!(($23 == 1) && ($24 == 0) && ($7 == "ins")) && !match($8, /.*rs./)) && ($26 >= .99)' data.mysql | wc -l`
+fi
+
+# Prepare a convenient sub-file for plots: AAF CEU, AAF CGI, AAF imputed
+# - Passed QC
+# - Remove A/T, C/G SNPs
+# - Variants with < 90% hets out of the 98 (Some variants have 100% hets. Why?!)
+# ref=ref allele, alt_ceu=alt allele (CEU), alt_hutt=alt allele (HUTT)
+if [ ! -f aaf.txt ]; then
+    max_hets=`perl -e "print ${num_wgs_samples} * 0.9"`
+    awk -F $'\t' -v max_hets=${max_hets} \
+    'BEGIN { COMP["A"] = "T"; COMP["T"] = "A"; COMP["C"] = "G"; COMP["G"] = "C"; } \
+    { \
+      is_qc = $(NF-5); var_type=$7; cgi_01=$23; ref=$13; alt_ceu=$14; alt_hutt=$15; comp_ref=COMP[ref]; \
+      if (is_qc && (cgi_01 <= max_hets) && \
+          ((var_type != "snp") || ((comp_ref != alt_ceu) && (comp_ref != alt_hutt)))) { \
+        print $2, $16, $17, $18; \
+      } \
+    }' ${data_file} > aaf.txt
+fi
+
+# Prepare list of CGI variants that passed QC and other useful data subsets
+if [ ! -f qc.txt ]; then
+    awk '{ if (($(NF-5) == 1) && ($3 > 0)) { print $3; } }' ${data_file} > qc.txt
+    printf "Number of QC variants: %d\n" `wc -l qc.txt | awk '{print $1}'`
+    rsync -aq qc.txt $beagle:/lustre/beagle/ober/users/oren/out/impute_cgi/data-sets/qc/
+fi
+common_file="${OBER_OUT}/impute_cgi/data-sets/common-novel-qc/common-novel-qc.txt"
+if [ ! -f $common_file ]; then
+    ${src}/common-novel-qc
+fi
+if [ ! -f functional.list ]; then
+    awk '{ print $1, (($75 == "P") || ($75 == "D")), $74; }' ${data_file} | sort -k 1,1 > functional.list
+    rsync -aq functional.list $beagle:/lustre/beagle/ober/users/oren/out/impute_cgi/data-sets/ld-pruned/
+fi
+
+fi
+
+#------------------------
+# Populate database
+#------------------------
+if $populate_db; then
+    db_cmd="$MYSQL -u hutt -phutt hutt"
+    echo "Creating database schema ... (assuming database on localhost with standard root pwd)"
+    cat ${src}/create-db.mysql | $MYSQL -u root -ppassword
+    echo "Populating hutt data ..."
+    ${db_cmd} --local-infile -e "LOAD DATA LOCAL INFILE '${PWD}/${data_file}' INTO TABLE hutt fields terminated by '\t' LINES TERMINATED BY '\n';"
+    
+    # Generate variant summary table data
+    ${db_cmd} -e "select is_qc, is_singleton, is_known, vartype, count(*) from hutt group by is_qc, is_singleton, is_known, vartype" > variant-summary.txt
+fi

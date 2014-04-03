@@ -1,0 +1,22 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# f - find a regular expression in a file set.
+# 
+# Author: Oren E. Livne
+# Date: 23-NOV-2009
+#----------------------------------------------------------------
+
+progname=`basename $0`
+if [[ ($# -ne 3) ]]; then
+    echo "Usage: $progname <directory> <fileSuffix> <regexp>"
+    echo ""
+    echo "Find the regular expression regexp in *.fileSuffix under directory."
+    echo ""
+    echo "Examples:"
+    echo ""
+    echo "  Find an opening XML tag in all xml files under the current directory:"
+    echo "    $progname . xml \"<tag>\""
+    exit 1
+fi
+
+find $1 -name "*.$2" | xargs -iddd grep -nH "$3" ddd

@@ -1,0 +1,5 @@
+#!/bin/bash
+# replace all ${...} strings with corresponding enviroment variables in standard input (do not forget to export them before running this script).
+# Taken from http://stackoverflow.com/questions/2914220/bash-templating-how-to-build-configuration-files-from-templates-with-bash
+
+perl -p -i -e 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : $&/eg'

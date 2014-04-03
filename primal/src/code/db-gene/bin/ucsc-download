@@ -1,0 +1,253 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Download the entire UCSC database and dump it into a local
+# mysql database.
+# 
+# Author: Oren E. Livne
+# Date:   02-OCT-2012
+#----------------------------------------------------------------
+
+#=======================================
+# Constants, default values
+#=======================================
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Read input arguments
+    USER="ucsc"
+    PASSWORD="ucsc"
+    DATABASE="ucsc"
+    HG_BUILD="19"
+    TABLE=""
+    COMMAND=""
+    while getopts "hvu:p:d:b:t:" optionName; do
+	case "$optionName" in
+	    u) USER="${OPTARG}";;
+	    p) PASSWORD="${OPTARG}";;
+	    d) DATABASE="${OPT}ARG}";;
+	    b) HG_BUILD="${OPTARG}";;
+	    t) TABLE="${OPTARG}";;
+	    v) verbose=true;;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+        esac
+    done
+
+    # Get mandatory arguments
+    shift $(( ${OPTIND} -1 ))
+    if [[ $# -lt 1 ]]; then
+	echo "A command must be specified."
+	print_type_for_help
+    fi
+    COMMAND="$1"
+    shift
+
+    # Command argument validation
+    if [ -z "${COMMAND}" ]; then
+	echo "Must specify a command."
+	print_type_for_help
+    fi
+    case "${COMMAND}" in
+	get|load)
+	    if [[ $# -ne 1 ]]; then
+		echo "Command syntax: ${COMMAND} dir"
+		print_type_for_help
+	    fi
+	    TARGET="$1"
+	    ;;
+	add_id)
+	    if [[ $# -ne 0 ]]; then
+		echo "Command syntax: ${COMMAND}"
+		print_type_for_help
+	    fi
+	    ;;
+	*) 
+	    echo "Unrecognized command ${COMMAND}; supported commands: get|load|add_id"
+	    print_type_for_help;;
+    esac
+
+    if $verbose ; then
+        # 3 points to stdout
+	exec 3>&1
+    else
+        # 3 points to a file
+	exec 3>/dev/null
+    fi
+    # Argument validation
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} [-u user] [-p password] [-d db] [-b build_num] [-t table] [-v] command [args]"
+    echo -e ""
+    echo -e "Download the entire UCSC Human Genome database and dump it into a local"
+    echo -e "mysql database accessible by the specified username and password. local-dir"
+    echo -e "is the local mirror directory to download files under."
+    echo -e ""
+    echo -e "\t-u user\t\tMySQL user name. Default: ${USER}"
+    echo -e "\t-p password\tMySQL password. Default: ${PASSWORD}"
+    echo -e "\t-d database\tMySQL database name. Default: ${DATABASE}"
+    echo -e "\t-b build_num\tHuman build number to download. Default: ${HG_BUILD}"
+    echo -e "\t-t table\tProcess only this table. If empty, processes all tables. Default: ${TABLE}"
+    echo -e "\t-v\t\tVerbose mode"
+    echo -e ""
+    echo -e "Supported commands:"
+    echo -e "\tget dir\t\tDownload data into the local directory dir."
+    echo -e "\tload dir\tLoad data to database from the local directory dir."
+    echo -e "\tadd_id\t\tCreate primary ID columns in the database."
+    exit $E_BADARGS
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#-----------------------------------------------------
+# Detect which operating system we're running on.
+#-----------------------------------------------------
+function detect_os()
+{
+    # OS specific support (must be 'true' or 'false').
+    case "$OSTYPE" in
+        cygwin*)
+            echo "cygwin"
+            ;;
+        linux*)
+            echo "unix"
+            ;;
+        *)
+           echo "Unsupported operating system $OSTYPE"
+           exit -1
+    esac
+}
+
+# Create a SQL file with a MySQL stored procedure that adds a column to a table if it does not exist
+function create_add_column_sql
+{
+    cat > $1 <<END
+-- Copyright (c) 2009 www.cryer.co.uk
+-- Script is free to use provided this copyright header is included.
+drop procedure if exists AddColumnUnlessExists;
+delimiter '//'
+
+create procedure AddColumnUnlessExists(
+       IN dbName tinytext,
+       IN tableName tinytext,
+       IN fieldName tinytext,
+       IN fieldDef text)
+begin
+	IF NOT EXISTS (
+	   SELECT * FROM information_schema.COLUMNS
+	   	  WHERE column_name=fieldName
+		  	and table_name=tableName
+			    and table_schema=dbName
+			    	)
+				THEN
+					set @ddl=CONCAT('ALTER TABLE ',dbName,'.',tableName,
+					    		       ' ADD COLUMN ',fieldName,' ',fieldDef);
+							       	 prepare stmt from @ddl;
+								 	 execute stmt;
+									 END IF;
+end;
+//
+
+delimiter ';'
+END
+}
+
+#=======================================
+# Main Program
+#=======================================
+
+read_input_args "$@"
+os=$(detect_os)
+
+# Command to connect to the MySQL mirror database
+MYSQL_CMD="mysql -u ${USER} -p${PASSWORD} ${DATABASE}"
+
+case "${COMMAND}" in
+    #----------------------
+    # Download table data
+    #----------------------
+    get)
+	UCSC_SITE="ftp://hgdownload.cse.ucsc.edu/goldenPath/hg${HG_BUILD}/database"
+	echo "Downloading from ${UCSC_SITE} to local directory ${TARGET}..."
+	mkdir -p ${TARGET}
+	cd ${TARGET}
+	if [[ "x${TABLE}" == "x" ]]; then
+	    FILES="*"
+	else
+	    FILES="${TABLE}.*"
+	fi
+
+	cd ${TARGET}
+	chmod +w ${FILES} >& /dev/null # Might fail if files don't exist, but that's OK
+	wget --timestamping "${UCSC_SITE}/${FILES}"
+	;;
+
+    #----------------------
+    # Load local data to db
+    #----------------------
+    load)
+        # Loop over all table files; for each one, create the table schema and dump
+        # the data into the mysql table
+	echo "Uploading data to local database..."
+        # Command to list all tables of interest
+	if [[ "x${TABLE}" == "x" ]]; then
+	    TABLES_CMD="find ${TARGET} -name \"*.sql\" | xargs -iddd basename ddd | sed \"s/\.sql//g\" | sed \"s/^\.\///g\"";
+	else
+	    TABLES_CMD="echo ${TABLE}"
+	fi
+	for table in `${TABLES_CMD}`; do
+	    size=`ls --human-readable -s ${TARGET}/${table}.txt.gz | awk {'print $1'}`
+	    echo "Loading table ${table}, size: ${size}..."
+	    ${MYSQL_CMD} < ${TARGET}/${table}.sql
+	    if [ "$os" == "cygwin" ]; then
+		# I could not find how to directly pipe stdin into MySQL on Windows;
+		# use a temp file
+		unzipped=`mktemp`
+		zcat ${TARGET}/${table}.txt.gz > ${unzipped}
+		cd /tmp
+		${MYSQL_CMD} --local-infile=1 -e "LOAD DATA LOCAL INFILE \"`basename ${unzipped}`\" INTO TABLE ${table};"
+		rm -f ${unzipped}
+	    else
+		zcat ${TARGET}/${table}.txt.gz | ${MYSQL_CMD} --local-infile=1 -e "LOAD DATA LOCAL INFILE \"/dev/stdin\" INTO TABLE ${table};"
+	    fi
+	done
+	;;
+
+    #----------------------
+    # Add primary key col
+    #----------------------
+    add_id)
+	# UCSC table SQL files do not come with a primary key; add one if it does not yet exist
+	file=`mktemp`
+	create_add_column_sql ${file}
+
+        # Command to list all tables of interest
+	tables=`mktemp`
+	if [[ "x${TABLE}" == "x" ]]; then
+	    ${MYSQL_CMD} -e "show tables" | egrep -v "Tables_in" > ${tables} 
+	else
+	    echo ${TABLE} > ${tables}
+	fi
+	while read table; do
+	    echo "call AddColumnUnlessExists(Database(), '${table}', '${table}_id', 'INT NOT NULL AUTO_INCREMENT FIRST, ADD PRIMARY KEY (${table}_id)');" >> ${file}
+	done < ${tables}
+	echo "drop procedure AddColumnUnlessExists;" >> ${file}
+        ${MYSQL_CMD} < ${file}
+	rm -f ${tables} ${file}
+	;;
+esac

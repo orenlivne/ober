@@ -1,0 +1,45 @@
+##########################################
+# lacrc - common bash environment script
+##########################################
+
+# Assumption: the $APP environment variable has been set to the top-level
+# directory containing all applications. Create symbolic links to the JDK,
+# tomcat, maven and the LAC code under this directory if necessary.
+
+#------------------------------------
+# Mandatory environment variables
+#------------------------------------
+export CATALINA_HOME="$APP/tomcat"
+export LAC_HOME="$APP/lac"
+export LOG="$APP/log"
+export BIONIMBUS_PASSWORD="12345"
+
+#------------------------------------
+# Java environment
+#------------------------------------
+export JAVA_HOME="$APP/jdk"
+export JAVA_OPTS="-Xms256m -Xmx512m"
+export MAVEN_OPTS="-Xms256m -Xmx512m"
+export MAVEN_HOME="$APP/maven"
+
+#------------------------------------
+# System Path
+#------------------------------------
+export PATH="$LAC_HOME/bin:$JAVA_HOME/bin:$MAVEN_HOME/bin:$CATALINA_HOME/bin:$PATH"
+
+#------------------------------------
+# Useful aliases
+#------------------------------------
+alias g='cd ~/galaxy; sh run.sh --reload | tee galaxy.log'
+# Kill galaxy processes
+alias gkill="ps aux | grep paster.py | egrep -v 'grep ' | awk {'print \$2'}  | xargs -iddd kill -9 ddd"
+alias gproc='( ps aux | grep run.sh ; ps aux | grep paster ) | egrep -v "grep "'
+# Maven commands
+alias ma='mvn clean install'
+alias mas='ma -Pnotest,nogwt'
+alias mt='mvn resources:resources resources:testResource -o'
+
+# Profile
+if [ "x$LC_PROFILE" = "xtunnel" ]; then
+   keep_tunnel_open
+fi

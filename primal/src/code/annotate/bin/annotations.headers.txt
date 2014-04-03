@@ -1,0 +1,69 @@
+record_hash     # a unique identifier - hash formed from chr,bp_start,bp_end,vartype
+cgi_variant_id  # CGI variant ID, unique identifier
+chromosome      # Chromosome number
+begin           # Variant begin position [bp]
+end             # Variant end position [bp]
+vartype         # Variant type (SNP/indel/sub)
+xref            # dbSNP137 annotation
+is_complex      # Is complex (SNP/sub only, if at least one call partially overlaps [begin,end]
+is_HH           # Are all WGS calls of high-high quality for this variant?
+is_VQHIGH       # Does this variant pass the VQHIGH filter of CGI's listvariants cgatools command?
+is_ceu          # Is this variant in 1000 genomes CEU?
+allele_ref      # Reference allele
+allele_alt_ceu  # CEU alternative allele
+allele_alt_hutt # Hutterites alternative allele
+maf_ceu         # CEU minor allele frequency (MAF)
+maf_cgi         # WGS Hutterite MAF
+maf_imputed     # WGS+Imputed Hutterites MAF
+ibd2_con        # #concordant IBD2 segments containing this variant
+ibd2_tot        # total #IBD2 segments containing this variant
+ibd2_rate       # ibd2_con/ibd2_tot
+cgi_00          # Number of 00 calls among WGS CGI samples (homozygous reference)
+cgi_01          # Number of 01 calls among WGS CGI samples (heterozygous)
+cgi_11          # Number of 11 calls among WGS CGI samples (homozygous alternative)
+cgi_NN          # Number of NN calls among WGS CGI samples (missing)
+cgi_call_rate
+phasing_NN      # Imputation: number of NN calls among WGS samples after phasing them
+phasing_N0      # # phased WGS that were assigned N0 (ordered haplotypes)
+phasing_N1      # Same, # 1N phased calls
+phasing_0N      # Same, # 0N phased calls
+phasing_00      # Same, # 00 phased calls
+phasing_01      # Same, # 01 phased calls
+phasing_1N      # Same, # 1N phased calls
+phasing_10      # Same, # 10 phased calls
+phasing_11      # Same, # 11 phased calls
+phasing_call_rate_allele # Number of partially-phased (non-NN) WGS CGI samples
+phasing_call_rate        # Number of fully phased (no N letter) WGS CGI samples
+imputed_NN      # Same as phasing_, but with imputed genotypes (again, these are ordered)
+imputed_N0
+imputed_N1
+imputed_0N
+imputed_00
+imputed_01
+imputed_1N
+imputed_10
+imputed_11
+imputed_call_rate_allele
+imputed_call_rate
+po_NN           # Same as phasing_ for number of haplotypes that were assigned parental origin
+po_N0           # (ordered as paternal,maternal)
+po_N1
+po_0N
+po_00
+po_01
+po_1N
+po_10
+po_11
+po_call_rate_allele
+po_call_rate
+ld_NN          # Same as phasing for number of (unordered) genotypes called by the IMPUTE2
+ld_N0          # LD method
+ld_N1
+ld_0N
+ld_00
+ld_01
+ld_1N
+ld_10
+ld_11
+ld_call_rate_allele
+ld_call_rate

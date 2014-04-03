@@ -1,0 +1,29 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Merge all imputed plink files into a master bed file.
+#-----------------------------------------------------------------
+#PBS -l walltime=06:00:00
+#PBS -l mppwidth=528
+#PBS -N ld_prune_qc_all
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+DIR="${OBER_OUT}/impute_cgi/data-sets"
+
+for c in `seq 1 22`; do
+    aprun -n 1 -N 1 -d 24 bash -x ${OBER_CODE}/impute/batch/cgi/ld-prune-qc ${DIR}/qc/qc ${DIR}/ld-pruned/qc.pruned $c $c 1 &
+done
+wait
+
+#-----------------------------------------------------------------
+# Transfer files to permanent CRI storage
+#-----------------------------------------------------------------
+rsync -aq ${DIR}/ld-pruned --exclude="work" olivne@bios.cri.uchicago.edu:/group/ober-resources/users/olivne/data-sets/

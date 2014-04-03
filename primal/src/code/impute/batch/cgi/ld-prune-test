@@ -1,0 +1,28 @@
+#!/bin/bash
+# LD pruning test on Affy data
+
+PLINK="plink --noweb --nonfounders"
+LD_PRUNE_EXEC="${OBER_CODE}/misc/examples/rachel/ld_prune.py"
+r2_prune="0.99"
+min_window_size="50"
+LD_PRUNE="${LD_PRUNE_EXEC} -v -w ${min_window_size} -p ${r2_prune}"
+
+# Extract chromosome
+if [ -f chr22.bed ]; then
+    plink --noweb --nonfounders --bfile hutt.3chipoverlap.clean --out chr22 --make-bed --chr 22 
+fi
+
+# Remove ped info for LD calculations
+awk '{print $1, $2, 0, 0, $5, $6}' chr22.fam > tmp && mv tmp chr22.fam
+
+# Calculate LD before
+plink --noweb --nonfounders --ld-window-kb 1000 --ld-window 50 --ld-window-r2 0 --bfile chr22 --out chr22.before
+sed '1d' chr22.before.ld |sort -g -k 7 > ld.before
+
+# Prune all pairs with r^2>=0.99
+plink --noweb --nonfounders --bfile chr22 --out chr22 --indep-pairwise 50 5 0.99
+plink --noweb --nonfounders --bfile chr22 --make-bed --out chr22.pruned --extract chr22.prune.in
+
+# Calculate LD before
+plink --noweb --nonfounders --ld-window-kb 1000 --ld-window 50 --ld-window-r2 0 --bfile chr22.pruned --out chr22.after
+sed '1d' chr22.after.ld |sort -g -k 7 > ld.after

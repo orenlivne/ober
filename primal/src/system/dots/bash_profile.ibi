@@ -1,0 +1,34 @@
+# .bash_profile
+
+# Get the aliases and functions
+if [ -f ~/.bashrc ]; then
+	. ~/.bashrc
+fi
+
+# User specific environment and startup programs
+. /apps/profile
+
+unset USERNAME
+
+#----------------------------------------------------------
+# Set up bash environment for running Ober lab programs.
+#----------------------------------------------------------
+export c="/clusta/livne"
+# Directory where you checked out the SVN tree
+export OBER="$c/ober"
+# Directory under which applications are installed
+export APPS="$c/opt"
+# Override default - data directory
+export OBER_DATA="$c/data"
+
+source $OBER/system/dots/bash_profile
+
+# Virtual environment
+export WORKON_HOME="/cchome/livne/python-Linux-x86_64"
+export MY_VIRTUALENV="${WORKON_HOME}/ober"
+source $HOME/.local/bin/virtualenvwrapper.sh
+export PROJECT_HOME="$HOME/projects"
+
+# More aliases
+export DATA_DIR="$c/data"
+export ba="$OBER/impute/impute/batch"

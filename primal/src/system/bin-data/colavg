@@ -1,0 +1,85 @@
+#!/bin/bash
+#------------------------------------------------------------------------
+# Calculate the average of a text file column.
+#
+# Usage: colavg <col-num>
+#
+# col-num is 1-based.
+# 
+# Author: Oren E. Livne
+# Date:   01-OCT-2013 (Fed government shutdown starts today!)
+#------------------------------------------------------------------------
+
+#=======================================
+# Constants
+#=======================================
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+# Name of impute2 executable
+IMPUTE2_EXEC="impute2"
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Column number
+    colnum=0
+
+    # Read input arguments
+    while getopts "hf:" optionName; do
+	case "$optionName" in
+	    f) colnum="$OPTARG";;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -0 ))
+    if [[ $# -ne 0 ]]; then
+  	echo "No arguments should be specified."
+	print_type_for_help
+    fi
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME}"
+    echo -e ""
+    echo -e "Calculate the average of text file columns."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-f col-num\t\tOnly calculate average for this column number (1-based)."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit ${E_BADARGS}
+}
+
+#=======================================
+# Business Logic
+#=======================================
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+if [[ ${colnum} -eq 0 ]]; then
+   # Do all columns
+   awk -v 'BEGIN { s=0; count=0; for (i = 1; i <= NF; i++) { s[i]=0; count[i]=0; } } \
+   { for (i = 1; i <= NF; i++) { s[i] += $i; count[i]++; } } \
+   END { for (i = 1; i <= NF; i++) printf "%f ", (1.0*s)/count; printf "\n"}'
+else
+   # Do single column
+   awk -v c=${colnum} 'BEGIN { s=0; count=0; } { s += $c; count++; } END { print (1.0*s)/count; }'
+fi

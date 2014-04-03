@@ -1,0 +1,50 @@
+#----------------------------------------------------------
+# PBS submission configuration: IMPUTE2 (LD imputation) run
+#----------------------------------------------------------
+# Separate field values by commas.
+# Reserved variables:
+# * _mem - node RAMDISK location
+# * _node - node number
+# * _param - textual representation of parameter configuration in the parameterized run
+
+[DEFAULT]
+# Start all parameter names in this section with underscores
+_home=/lustre/beagle/ober/users/oren
+_ober=%(_home)s/ober
+# Node RAMDISK location or fast scratch space
+_mem=/dev/shm
+#_mem=/lustre/beagle/ober/users/oren/out/impute_cgi_work/chr%(_chrom)s/run_impute2/
+_job_name=run_impute2
+_phased_flags=%(_phased_flags)s
+
+[pbs]
+# Name of the entire job
+job_name=%(_job_name)s
+# Output directory
+out_dir=out
+# Queue to submit to (if empty, will not generate a queue header)
+queue=
+# Job time (00:30:00 means 30 minutes. Queues may have restrictions.)
+walltime=%(_walltime)s
+# Beagle project ID to charge jobs to
+project=CI-MCB000155
+# How many nodes to use
+nodes=%(_nodes)s
+# How many cores to use in each node (1..24) 
+instances_per_node=%(_instances_per_node)s
+# Processes (= aprun -d flag value)
+processes=%(instances_per_node)s
+
+[env]
+# Name of desired Python environment modules to be loaded 
+modules=python/2.7.3-vanilla
+code=%(_ober)s/code
+
+[param]
+_executable = None
+
+[exec]
+# Location of imputation inputs: phased Problem object npz files, IBD segment files
+executable = %(_ober)s/code/impute/batch/impute2/run-impute2 %(_phased_flags)s %(_mem)s/%(_job_name)s-%(_param)s
+transfer_input_files = %(_out)s/node-%(_node)s/%(_job_name)s*:./
+transfer_output_files = %(_job_name)s*

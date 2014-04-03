@@ -1,0 +1,21 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Find IBD segments of all samples in a sample bp range [a,b)
+# in segment stdin data.
+# 
+# Author: Oren E. Livne
+# Date:   08-FEB-2013
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 2 ]; then
+  echo "Usage: ${PROGNAME} a b"
+  echo ""
+  echo "Find IBD segments of all samples in the SNP bp range [a,b)"
+  echo "in segment stdin data."
+  exit $E_BADARGS
+fi
+awk -v i=$1 -v j=$2 '{ if (i <= $3) { a=$3; } else { a=i }; if (j >= $4) { b=$4; } else { b=j }; if (a < b) { print $0; } }'

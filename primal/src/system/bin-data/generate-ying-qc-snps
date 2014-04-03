@@ -1,0 +1,32 @@
+#!/bin/bash
+#--------------------------------------------------------------------------------------------------
+# Commands to regenerate a plink file from Ying's QC Affymetrix SNP list (3 chip UNION) on CRI.
+#
+# qc-ying     - Ying's QC list (*.cleanmap)
+# qc-maf-0.05 - all of Ying's QC filteres (supposedly), including MAF >= 5%.
+#               Almost identical to qc-ying - couldn't exactly reproduce her list
+# qc-maf-0.01 - all of Ying's QC filteres (supposedly), but with MAF >= 1%. For imputation
+#               cross validation.
+#--------------------------------------------------------------------------------------------------
+
+ying_dir="/group/ober-resources/resources/Hutterites/affymetrix/combined/mapByChr"
+hutt_noqc="/group/ober-resources/resources/Hutterites/affymetrix/combined/plink_format/hutt.3chips.noqc"
+
+( for c in `seq 1 22`; do sed '1d' ${ying_dir}/chr$c.cleanmap; done ; sed '1d' ${ying_dir}/chrX.cleanmap ) > qc-ying
+
+( for c in `seq 1 22`; do sed '1d' ${ying_dir}/chr$c.map; done ; sed '1d' ${ying_dir}/chrX.map ) \
+| awk '{ if (($10 < 5) && ($7 >= 0.95) && (($8 > 0.001) || ($9 > 0.001)) && (($8 != "na") || ($9 != "na")) \
+             && ($6 >= 0.05)) { print $1; } }' > qc-maf-0.05
+
+( for c in `seq 1 22`; do sed '1d' ${ying_dir}/chr$c.map; done ; sed '1d' ${ying_dir}/chrX.map ) \
+| awk '{ if (($10 < 5) && ($7 >= 0.95) && (($8 > 0.001) || ($9 > 0.001)) && (($8 != "na") || ($9 != "na")) \
+             && ($6 >= 0.01)) { print $1; } }' > qc-maf-0.01
+
+echo "Ying's QC list        :" `wc -l qc-ying     | awk '{print $1}'`
+echo "QC filters + MAF >= 5%:" `wc -l qc-maf-0.05 | awk '{print $1}'`
+echo "QC filters + MAF >= 1%:" `wc -l qc-maf-0.01 | awk '{print $1}'`
+
+# Given Jessica's all-SNP affy chip union plink file, run this to generate qc snp plink file
+for t in qc-ying qc-maf-0.05 qc-maf-0.01; do
+    plink --noweb --bfile ${hutt_noqc} --extract ${t} --out hutt.3chips.${t} --make-bed >& /dev/null
+done

@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# For a single chromosome.
+chrom="$1"
+
+IMPUTED_DIR="${OBER_OUT}/impute_cgi/imputed-override"
+IMPUTE2_DIR="${OBER_OUT}/impute_cgi/impute2/chr${chrom}"
+
+mkdir -p ${IMPUTE2_DIR}
+
+# Prepare reference haplotype file
+zcat ${IMPUTED_DIR}/imputed_cgi.chr${chrom}.tsv.gz | imputed-genotypes -i ${IMPUTED_DIR}/hutterites.wgs.index > ${IMPUTE2_DIR}/ref.haps

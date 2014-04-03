@@ -1,0 +1,81 @@
+     1	record_id       # Variant annotation database unique identifier
+     2	record_hash     # Variant unique identifier - hash formed from chr,bp_start,bp_end,vartype
+     3	cgi_variant_id  # CGI variant ID, unique identifier
+     4	chromosome      # Chromosome number
+     5	begin           # Variant begin position [bp]
+     6	end             # Variant end position [bp]
+     7	vartype         # Variant type (SNP/indel/sub)
+     8	xref            # dbSNP137 annotation
+     9	is_complex      # Is complex (SNP/sub only, if at least one call partially overlaps [begin,end]
+    10	is_HH           # Are all WGS calls of high-high quality for this variant?
+    11	is_VQHIGH       # Does this variant pass the VQHIGH filter of CGI's listvariants cgatools command?
+    12	is_ceu          # Is this variant in 1000 genomes CEU?
+    13	allele_ref      # Reference allele
+    14	allele_alt_ceu  # CEU alternative allele
+    15	allele_alt_hutt # Hutterites alternative allele
+    16	aaf_ceu         # CEU Alternative Allele Frequency (AAF)
+    17	aaf_cgi         # WGS Hutterite AAF
+    18	aaf_imputed     # WGS+Imputed Hutterites AAF
+    19	ibd2_con        # #concordant IBD2 segments containing this variant
+    20	ibd2_tot        # total #IBD2 segments containing this variant
+    21	ibd2_rate       # ibd2_con/ibd2_tot
+    22	cgi_00          # Number of 00 calls among WGS CGI samples (homozygous reference)
+    23	cgi_01          # Number of 01 calls among WGS CGI samples (heterozygous)
+    24	cgi_11          # Number of 11 calls among WGS CGI samples (homozygous alternative)
+    25	cgi_NN          # Number of NN calls among WGS CGI samples (missing)
+    26	cgi_call_rate   # CGI Call Rate
+    27	phasing_NN      # Imputation: number of NN calls among WGS samples after phasing them
+    28	phasing_N0      # # phased WGS that were assigned N0 (ordered haplotypes)
+    29	phasing_N1      # Same, # 1N phased calls
+    30	phasing_0N      # Same, # 0N phased calls
+    31	phasing_00      # Same, # 00 phased calls
+    32	phasing_01      # Same, # 01 phased calls
+    33	phasing_1N      # Same, # 1N phased calls
+    34	phasing_10      # Same, # 10 phased calls
+    35	phasing_11      # Same, # 11 phased calls
+    36	phasing_call_rate_allele # % partially-phased (non-NN) WGS CGI samples
+    37	phasing_call_rate        # % fully phased (no N letter) WGS CGI samples (phasing call rate)
+    38	imputed_NN      # Same as phasing_, but with imputed genotypes (again, these are ordered)
+    39	imputed_N0
+    40	imputed_N1
+    41	imputed_0N
+    42	imputed_00
+    43	imputed_01
+    44	imputed_1N
+    45	imputed_10
+    46	imputed_11
+    47	imputed_call_rate_allele # Imputation allele call rate
+    48	imputed_call_rate  # Imputation genotype call rate
+    49	po_NN           # Same as phasing_ for number of haplotypes that were assigned parental origin
+    50	po_N0           # (ordered as paternal,maternal)
+    51	po_N1
+    52	po_0N
+    53	po_00
+    54	po_01
+    55	po_1N
+    56	po_10
+    57	po_11
+    58	po_call_rate_allele
+    59	po_call_rate   # Parental origin call rate
+    60	ld_NN          # Same as phasing for number of (unordered) genotypes called by the IMPUTE2
+    61	ld_N0          # LD method
+    62	ld_N1
+    63	ld_0N
+    64	ld_00
+    65	ld_01
+    66	ld_1N
+    67	ld_10
+    68	ld_11
+    69	ld_call_rate_allele
+    70	ld_call_rate    # LD imputation call rate
+    71  var_region      # Intergenic/intronic/... from Annovar
+    72  var_func        # Functional annotation from Annovar
+    73  var_mutation    # Nonsense/missense/...
+    74  var_polyphen_score # PolyPhen2 score
+    75  var_polyphen_pred  # Prediction (B=benign, P=possibly damaging D=damaging)
+    76  is_qc           # Did variant pass QC?
+    77	is_singleton    # Is this variant a singleton?
+    78	is_known        # Is this an known variant (annotated with an RS number) or novel?
+    79	maf_ceu         # CEU Minor Allele Frequency (MAF)
+    80	maf_cgi         # WGS Hutterite MAF
+    81 	maf_imputed     # WGS+Imputed Hutterites MAF

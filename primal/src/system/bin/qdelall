@@ -1,0 +1,9 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Delete all running jobs from a Torque cluster scheduler.
+# 
+# Author: Oren E. Livne
+# Date: 24-SEP-2013
+#----------------------------------------------------------------
+
+qdel `qstat -u ${USER} | egrep ".sdb" | egrep -v " C " | egrep -v " E " | awk '{print $1}' | paste -sd' '`

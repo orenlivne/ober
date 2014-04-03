@@ -1,0 +1,46 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Open a remote desktop on IBI's Windows server. Intended for
+# Debian Linux machines.
+#
+# Prerequisites:
+# - Debian packages: rdesktop
+# - (Optional) a password file ~/.pw/brdfgateway_pw and
+#   put your IBI password in it. If not, the program will prompt
+#   you for a password.
+# 
+# Author: William Wentworth-Sheilds and Oren E. Livne
+# Date: 01-JUN-2012
+#----------------------------------------------------------------
+
+# Constants
+password_file="$HOME/.pw/brdfgateway_pw"
+host="brdfwapps.uchicago.edu"
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 1 ]; then
+  echo "Usage: ${PROGNAME} <ibi_username>"
+  echo ""
+  echo "Open a remote desktop on IBI's Windows server."
+  echo "- Debian packages: rdesktop"
+  echo "- (Optional) a password file ${password_file} and"
+  echo "  put your IBI password in it. If not, the program will prompt you for a password."
+  exit $E_BADARGS
+fi
+
+user="$1"
+if [ -f ${password_file} ]; then
+    # Password file exists
+    password=`tail -1 ~/.pw/brdfgateway_pw`
+else
+    # No password file, prompt for password
+    echo -n "Password: "
+    stty -echo
+    read password
+    stty echo
+fi
+
+rdesktop -u "BIOINFOCC\\${user}" -p "${password}" -r clipboard:PRIMARYCLIPBOARD -g 1024x768 ${host}

@@ -1,0 +1,320 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Generate our SNP database from raw data.
+# 
+# Author: Oren E. Livne
+# Date:   13-NOV-2012
+#----------------------------------------------------------------
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Output directory
+    cache_dir="cache"
+    # Printout level
+    verbose=false
+    # Threshold of "strong-LD-connections" [r^2]
+    ld_threshold=0.3
+    # Contains list of Hutt SNPs to load into database table 'snp'
+    bim_file="${OBER}/data/hutt/hutt.bim"
+    # Contains LD information (snp1,snp2,r^2) to load into the 'ld' table in addition to affy LD
+    ld_file=""
+
+    # Read input arguments
+    while getopts "hvo:t:b:l:" optionName; do
+	case "$optionName" in
+	    o) cache_dir="$OPTARG";;
+	    t) ld_threshold="$OPTARG";;
+	    b) bim_file="$OPTARG";;
+	    l) ld_file="$OPTARG";;
+	    v) verbose=true;;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 0 ]]; then
+#  		echo "SQLITE3 database file name must be specified."
+		print_type_for_help
+    fi
+    
+    # Argument validation
+    
+    # Expand relative path to full path
+    if [[ ${cache_dir} != \/* ]]; then
+#	cache_dir=`pwd`/${cache_dir}
+	  cache_dir="${OBER}/data/common/db/${cache_dir}"
+    fi
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} [flags] <sqlite-db-file>"
+    echo -e ""
+    echo -e "Generate the SNP sqlite3 database from raw data."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-o cache_dir\tCache file directory. Default: ${cache_dir}"
+    echo -e "\t-t ld-threshold\tThreshold of strong-LD-connections [r^2]. Default: ${ld_threshold}"
+    echo -e "\t-b bim-file\tPLINK bim file containing the list of Hutt SNPs to load into database. Default: ${bim_file}"    
+    echo -e "\t-l ld-file\tOptioan file with LD information (snp1,snp2,r^2) to add to the 'ld' table. Default: ${ld_file}"
+    echo -e "\t-v\t\tVerbose mode."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#=======================================
+# Database Functions
+#=======================================
+
+# Run a SQL string against the DB
+function run_sql
+{
+    sql="$1"
+    flags="$2"
+    echo "${sql}" | mysql ${flags} -A -h ${DB_HOSTNAME} -u ${DB_USER} -p${DB_PASSWORD} ${DB_DB}
+}
+
+# Count # records in a SQL table
+function num_records
+{
+    echo $(run_sql "select count(*) as c from ${1};" "-B") | sed 's/[c\r]//g'
+}
+
+# Check if table has records (faster than num_records == 0 for large tables)
+function has_records
+{
+    if [[ -n $(run_sql "select * from ${1} limit 1;" "-B") ]]; then
+    	echo "1";
+    else
+    	echo "0";
+    fi
+}
+
+# Run a SNP DB manager command. Works with both Cygwin Windows and Linux paths. 
+function db_manager_cmd
+{
+    python ${DB_MANAGER} "$@"
+}
+
+# Add auto-increment first column to a file. Required for SQLITE3 bulk-loads.
+function add_auto_increment
+{
+    printf "Adding auto-increment column in $1 ...\n"
+    awk '{SUM += 1; printf "%d\t%s\n", SUM, $0}' $1 > $1.tmp
+    mv $1.tmp $1
+}
+
+#=======================================
+# LD Data
+#=======================================
+
+# Convert a raw Hutterites LD chromosome data file into a text file with an adjacency list (i,j,w).
+function make_ld_file
+{
+    sed '1d' $1 | awk -v c=$2 '{printf "%d\t%s\t%s\t%f\n", c, $1, $2, $5;}'
+}
+
+# Convert a raw Hutterites LD data file set of a single chromosome into an adjacency list.
+# This includes SNPs in the intersection of the 3 Affy chips.
+function make_ld_file_chrom
+{
+    # Merge both chromosome p-arm, q-arm files into a single SQLITE3 column data file 
+    input_prefix="$1"
+    chrom="$2"
+    if [ -f ${input_prefix}.pr2 ]; then
+	make_ld_file ${input_prefix}.pr2 ${chrom}
+    fi
+    make_ld_file ${input_prefix}.qr2 ${chrom}
+}
+ 
+# Filter the Hutterites LD chromosome adjacency list (i,j,w) to include only w >= ${ld_threshold}
+function filter_ld_file
+{
+    rm -f $3
+    if [[ $(echo "$2 > 0.0" | bc -q) == "1" ]]; then
+	cat $1 | awk -v t=$2 '{if ($5 >= t) { print $0;}}' > $3
+    else
+       	# No r^2 threshold, get everything
+	ln -s $1 $3
+    fi
+}
+
+#function make_genetic_map
+#{ 
+#map_file="${cache_dir}/genetic_map.txt"
+#if [ ! -f ${map_file} ]; then
+#  echo "Generating genetic map ..."
+#  ${DB} -B --execute "select chrom, name, chromEnd from snp135 order by chrom, chromEnd;" | sed 's/chr\([0-9]\+\)/\1/g' | sed '1d' > ${map_file} 
+#fi
+#
+# Bulk-load map data into SNP db. Add auto-increment sequence numbers (TODO: improve the slow awk cmd)
+#temp=${map_file}.tmp
+#awk '{ SUM += 1; print SUM "\t" $0} ' ${map_file} > ${temp}   
+#sqlite3 -separator $'\t' ${db_file} ".import ${temp} snp"
+#rm -f ${temp}
+#}
+
+#=======================================
+# Main Program
+#=======================================
+
+#--------------------------
+# Constants
+#--------------------------
+# Raw data directory
+# Fix cygwin paths
+export OBER=`to-unix-path ${OBER}`
+
+DATA_DIR="${OBER}/data/common"
+# SNP Hutterites LD data directory 
+LD_DIR="${DATA_DIR}/ld-hutt"
+# Genetic map directory
+MAP_DIR="${DATA_DIR}/map"
+# UCSC tables to download and load
+UCSC_TABLES=('refGene' 'snp135')
+# Database connection command
+DB_HOSTNAME="localhost"
+DB_USER="ucsc"
+DB_PASSWORD="ucsc"
+DB_DB="ucsc"
+# SNP database manager python program
+DB_MANAGER="${OBER}/code/db-gene/db_gene/snp/snp_db.py mysql://ucsc:ucsc@localhost/ucsc"
+
+# Parse CLI arguments
+read_input_args "$@"
+win_cache_dir=`to-unix-path ${cache_dir}`
+
+#--------------------------
+# Init db, environment
+#--------------------------
+mkdir -p ${cache_dir}
+#run_sql "drop database ucsc; create database ucsc;" "-B"
+# Create the SNP database schema
+db_manager_cmd create
+# Load chromosome metadata into db table
+if [[ "$(has_records 'chromosome')" == "0" ]]; then
+    db_manager_cmd import_chr ${MAP_DIR}/chromosome.txt
+else
+  echo "Table chromosome already populated, skipping";
+fi
+
+#--------------------------
+# Import relevant UCSC data
+#--------------------------
+for table in "${UCSC_TABLES[@]}"; do
+    if [ ! -f "${cache_dir}/${table}.txt.gz" ]; then
+	echo "Downloading ${table} data ..."
+	ucsc-download -t ${table} get ${cache_dir}
+    fi
+    if [[ -n $(run_sql "show tables where Tables_in_ucsc = '${table}';" "-B") ]]; then
+	echo "Table ${table} already exists, skipping"; 
+    else
+	echo "Importing ${table} to database ..."
+	ucsc-download -t ${table} load ${cache_dir}
+	ucsc-download -t ${table} add_id
+    fi
+done
+
+#--------------------------
+# Load Hutterites LD data
+#--------------------------
+# Convert raw data to SQL column format
+ld_data="${cache_dir}/ld.txt"
+ld_data_strong="${cache_dir}/ld_strong.txt"
+if [ ! -f "${ld_data}.lock" ]; then
+    rm -f ${ld_data}
+    touch ${ld_data}
+    for (( chrom=1 ; chrom <= 22; chrom++ )); do
+	printf "Converting LD data, chromosome ${chrom} ...\n"
+	make_ld_file_chrom ${LD_DIR}/${chrom} ${chrom} >> ${ld_data}
+    done
+    printf "Adding additional LD information from ${ld_file} ...\n"	
+    cat ${ld_file} >> ${ld_data}
+    add_auto_increment ${ld_data}
+fi
+touch ${ld_data}.lock
+	
+if [[ ! -f "${cache_dir}/ld_strong.txt" ]]; then
+    echo "Calculating strong LD adjacency list..."
+    filter_ld_file "${cache_dir}/ld.txt" "${ld_threshold}" "${ld_data_strong}"
+fi
+
+# Bulk-load strong LD graph into db (data is tab-limited; space-delimited doesn't work as well, it seems)
+if [[ "$(has_records 'ld')" == "0" ]]; then
+    echo "Loading Hutterites strong LD graph data into database ..."
+    file=$( to-unix-path "${ld_data_strong}" | sed 's/\\/\//g' )
+    run_sql "load data local infile '${file}' into table ld;" "--local-infile=1"
+else
+    echo "Table ld already populated, skipping";
+fi
+
+#------------------------------------------------------------------------------
+# Find all unique Hutt SNPs and the subset of them that has no LD information
+#------------------------------------------------------------------------------
+do_missing=false
+snp_prefix="snp"
+
+if [ ! -f "${cache_dir}/${snp_prefix}.nof" ]; then
+	echo "Extracting SNPs from PLINK BIM file ${bim_file} ..."
+	awk {'print $2'} ${bim_file} > ${cache_dir}/${snp_prefix}.nof
+fi
+
+if [ ! -f "${cache_dir}/${snp_prefix}_ld.nof" ]; then
+  echo "Calculating unique LD SNPs ..."
+  awk {'print $3,"\n",$4'} ${cache_dir}/ld.txt | sed 's/^[ \t]*//;s/[ \t]*$//' | sort -u > ${cache_dir}/${snp_prefix}_ld.nof
+  do_missing=true
+fi
+if [[ "$do_missing" == "true" || ( ! -f "${cache_dir}/${snp_prefix}_missing.nof" ) ]]; then
+  echo "Calculating Hutt SNPs with no LD information ..."
+  python -c "import sys, numpy as np; to_set = lambda file_name: set(x.rstrip('\n').rstrip('\r') for x in open(file_name, 'rb').readlines()); hutt = to_set(sys.argv[1]); ld = to_set(sys.argv[2]); missing = hutt - ld; np.savetxt(sys.argv[3], np.array(list(missing)), fmt='%s'); print '# Hutt SNPs\t\t: %d' % (len(hutt),); print '# LD SNPs\t\t: %d' % (len(ld),); print '# (Hutt SNPs - LD SNPs)\t: %d' % (len(missing),); print '# (LD SNPs - Hutt SNPs)\t: %d' % (len(ld - hutt),);" ${win_cache_dir}/${snp_prefix}.nof ${win_cache_dir}/${snp_prefix}_ld.nof ${win_cache_dir}/${snp_prefix}_missing.nof
+fi
+
+# Bulk-load all Hutt SNPs into a db
+if [[ "$(has_records 'snp')" == "0" ]]; then
+	echo "Loading SNPs from Hutt BIM file ${bim_file} to database ..."
+    db_manager_cmd import_snps ${bim_file}
+	for (( chrom=1; chrom <= 22; chrom++ )); do
+		echo "Loading SNP genetic positions, chrom ${chrom} ..."
+		db_manager_cmd import_genetic_dist ${chrom} ${OBER}/data/common/map/genetic_map_GRCh37_chr${chrom}.txt
+	done
+else
+  	echo "Table snp already populated, skipping";
+fi
+
+#--------------------------
+# Load Hutterites Kinship
+#--------------------------
+kinship_data="${OBER}/data/common/pedigree/idcoef.txt"
+kinship_data_auto="${cache_dir}/idcoef.txt.auto"
+if [[ "$(has_records 'kinship')" == "0" ]]; then
+  echo "Loading Hutterites condesed kinship coefficients into database ..."
+  if [[ ! -f "${kinship_data_auto}" ]]; then
+  	awk {'printf "%d\t%d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n",$2,$3,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15'} ${kinship_data} > ${kinship_data_auto}  
+  	add_auto_increment ${kinship_data_auto}
+  fi
+  echo "Loading data into database ..."
+  run_sql "load data local infile '$(to-unix-path "${kinship_data_auto}")' into table kinship;" "--local-infile=1"
+else
+  echo "Table kinship already populated, skipping";
+fi
+
+#echo 'select snp1 from ld union distinct select snp2 from ld;' | mysql -B -A -h localhost -u ucsc -pucsc ucsc | sed '1d'
+##### Query the UCSC database to generate a genetic map
+
+db_manager_cmd report

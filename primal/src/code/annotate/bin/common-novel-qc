@@ -1,0 +1,40 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Create a list of imputed CGI data subset of all common novel
+# non-substitution variants that passed QC. Use the annotations
+# file. For Catherine's GWAS.
+#
+# Author: Oren E. Livne
+# Date:   25-FEB-2014
+#----------------------------------------------------------------
+
+ANNOTATIONS_FILE="${OBER_OUT}/impute_cgi/annotations/data.mysql.qc"
+OUT_FILE="${OBER_OUT}/impute_cgi/data-sets/common-novel-qc/common-novel-qc.txt"
+#OUT_FILE1="${OBER_OUT}/impute_cgi/data-sets/common-novel-qc/common-novel-qc.txt"
+#OUT_FILE2="${OBER_OUT}/impute_cgi/data-sets/common-novel-qc/ceu-1-hutt-5.txt"
+#OUT_FILE3="${OBER_OUT}/impute_cgi/data-sets/common-novel-qc/ceu-1-5-hutt-10.txt"
+
+# See annoations.headers.enum for column-to-column-number mapping
+#     3	cgi_variant_id  # CGI variant ID, unique identifier
+#     7	vartype         # Variant type (SNP/indel/sub)
+#    76 is_qc           # Did variant pass QC?
+#    77	is_singleton    # Is this variant a singleton?
+#    78	is_known        # Is this an known variant (annotated with an RS number) or novel?
+#    79	maf_ceu         # CEU Minor Allele Frequency (MAF)
+#    80	maf_cgi         # WGS Hutterite MAF
+#    81 maf_imputed     # WGS+Imputed Hutterites MAF
+
+# Type 1 SNPs: no RS#, CEU MAF = 0, Hutt MAF >= 5% (with CGI IDs, passed QC. Exclude substitutions.)
+awk '{ if (($78 == 0) && ($79 == 0) && ($81 >= 0.05) && ($76 == 1) && ($3 > 0) && ($7 != "sub")) { print $3, 1; } }' ${ANNOTATIONS_FILE} > ${OUT_FILE}
+
+# Type 2 SNPs: RS#, CEU MAF < 1%, Hutt MAF >= 5% (with CGI IDs, passed QC. Exclude substitutions.)
+awk '{ if (($78 == 1) && ($79 < 0.01) && ($81 >= 0.05) && ($76 == 1) && ($3 > 0) && ($7 != "sub")) { print $3, 2; } }' ${ANNOTATIONS_FILE} >> ${OUT_FILE}
+
+# Type 3 SNPs: RS#, 1 <= CEU MAF < 5%, Hutt MAF >= 10% (with CGI IDs, passed QC. Exclude substitutions.)
+awk '{ if (($78 == 1) && ($79 >= 0.01) && ($79 < 0.05) && ($81 >= 0.10) && ($76 == 1) && ($3 > 0) && ($7 != "sub")) { print $3, 3; } }' ${ANNOTATIONS_FILE} >> ${OUT_FILE}
+
+# Transfer to Beagle
+rsync -apq ${OUT_FILE} $beagle:/lustre/beagle/ober/users/oren/out/impute_cgi/data-sets/common-novel-qc/
+
+# trigger PLINK extraction job and resulting data set's transfer to CRI storage
+#ssh $beagle qsub /lustre/beagle/ober/users/oren/ober/code/impute/batch/cgi/common-novel-qc.pbs

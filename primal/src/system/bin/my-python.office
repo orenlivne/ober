@@ -1,0 +1,10 @@
+#!/bin/bash
+export HOME=/home/oren
+source $HOME/.bash_profile
+echo $PYTHONPATH
+echo "==============================================="
+echo "`which python` $(python --version 2>&1)"
+echo "==============================================="
+python -c "import sys; print sys.path"
+echo "Running command: python ${@}"
+python "$@"

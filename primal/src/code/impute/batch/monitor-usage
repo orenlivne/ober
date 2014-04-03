@@ -1,0 +1,41 @@
+#!/bin/bash
+
+frequency="$1"
+monitor_out="$2"
+
+#while true; do
+old_output=""
+if $monitor_out; then
+    input=`wc -l /dev/shm/*.in | grep "total" | awk '{print $1}'`
+    d=`date`
+    printf "%s # input lines: %d\n" "$d" ${input}
+    #input=$( find /dev/shm -name '*.in' | xargs -iddd tail -1 ddd | cut -f 1 | paste -sd ' ' )
+fi
+
+for (( i = 0; i < 50; i++ )); do
+    cpu=`top -n1 -b | grep "load average" | awk '{print $13}' | cut -d, -f 1`
+    cpu=`echo "scale=2; 100.*${cpu}/24." | bc`
+    mem=`top -b -n1 | grep "Mem" | awk '{print $2, $4, $6}' | sed 's/M//g'`
+    if $monitor_out; then
+	d=`date`
+#	output=`wc -l /dev/shm/*.out | grep "total" | awk '{print $1}'`
+	output=0
+	for file in `find /dev/shm -name '*.out'`; do
+	    done=$(( `tail -1 ${file} | cut -f 1 -d ' '`-`head -1 ${file} | cut -f 1 -d ' '`+1 ))
+            output=$(( ${output} + ${done} ))
+        done
+	printf "%s %s %s # output: %d (%.2f%% done)\n" "$d" "${cpu}" "${mem}" ${output} `echo "scale=2;100.*${output}/${input}" | bc`	
+	output=$( find /dev/shm -name '*.out' | xargs -iddd tail -1 ddd | cut -f 1 | paste -sd ' ' )
+	if [[ "x${output}" == "x${input}" ]]; then
+	    exit 0
+	fi
+	old_output="${output}"
+    else
+#	echo "--------------------------------------------------------------------"
+#	top -b -n1
+	echo $cpu $mem
+#	ps aux
+#	ps -eo pcpu,pid,user,args | sort -k 1 -r | head -20
+    fi
+    sleep ${frequency}
+done

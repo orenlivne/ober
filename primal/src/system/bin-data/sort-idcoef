@@ -1,0 +1,42 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Sort Lide Han's id coefficient file by first id, then by second
+# id2. Extract id1,id2, lam, deltas. Outputs entries for both
+# (id1,id2) and (id2,id1).
+# 
+# Author: Oren E. Livne
+# Date:   28-JAN-2013
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [[ ( $# -lt 1 ) || ( $# -gt 2 ) ]]; then
+  echo "Usage: ${PROGNAME} <ibdld-idcoef-file> [with-lambda]"
+  echo ""
+  echo "Sort Lide's identity coefficients file for faster access."
+  echo "Sort by first id, then by second id2. Extract id1,id2, lam, deltas."
+  echo "Output entries for both (id1,id2) and (id2,id1)."
+  exit $E_BADARGS
+fi
+# TODO: convert to a flag
+if [ $# -lt 2 ]; then
+	lam=true
+else
+	lam=$2
+fi
+
+if $lam; then
+	awk {'printf "%d %d %e %e %e %e %e %e %e %e %e %e\n", $2,$3,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15; \
+		  if ($2 != $3) { \
+			printf "%d %d %e %e %e %e %e %e %e %e %e %e\n", $3,$2,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15;\
+		}'} $1 \
+	| sort -n -k 1,1n -k2,2n
+else
+	awk {'printf "%d %d 0.0 %e %e %e %e %e %e %e %e %e\n", $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11; \
+		  if ($1 != $2) { \
+		  	printf "%d %d 0.0 %e %e %e %e %e %e %e %e %e\n", $2,$1,$3,$4,$5,$6,$7,$8,$9,$10,$11; \
+		}'} $1 \
+	| sort -n -k 1,1n -k2,2n
+fi

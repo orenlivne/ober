@@ -1,0 +1,3 @@
+#!/bin/bash
+# Given a file with a single data.mysql.qc line format, format its annotation
+paste <(cat $1 | list-fields) <(awk '{ for (i=2;i<=NF;i++) printf "%s ", $i; printf "\n";}' /home/oren/ober/system/bin-data/annotations/annotations.headers.enum) | awk '{ printf "%-4s %-15s ", $1, $2; for (i=3;i<=NF;i++) printf " %s", $i; printf "\n";}' | less

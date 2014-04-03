@@ -1,0 +1,20 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Extract a sample's genotypes from a PLINK TPED file.
+# Sample index is 0-based.
+# 
+# Author: Oren E. Livne
+# Date:   08-FEB-2013
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 1 ]; then
+  echo "Usage: ${PROGNAME} <sample-id>"
+  echo ""
+  echo "Find IBD segments of a sample in a segment list."
+  exit $E_BADARGS
+fi
+awk -v i="$1" '{print $(5+2*i),$(6+2*i)}'

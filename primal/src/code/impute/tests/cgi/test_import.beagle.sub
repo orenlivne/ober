@@ -1,0 +1,53 @@
+#----------------------------------------------------------
+# PBS submission configuration
+# python import test
+#----------------------------------------------------------
+# Separate field values by commas.
+# Reserved variables:
+# * _mem - node RAMDISK location
+# * _node - node number
+# * _param - textual representation of parameter configuration in the parameterized run
+
+[DEFAULT]
+# Start all parameter names in this section with underscores
+_home=/lustre/beagle/ober/users/oren
+_ober=%(_home)s/ober
+# Node RAMDISK location or fast scratch space
+_mem=/dev/shm
+
+[pbs]
+# Name of the entire job
+job_name=test_import
+# Output directory
+out_dir=out
+# Queue to submit to
+queue=batch
+# Job time (00:30:00 means 30 minutes. Queues may have restrictions.)
+walltime=00:30:00
+# Beagle project ID to charge jobs to
+project=CI-MCB000155
+# How many nodes to use
+nodes=10
+# How many cores to use in each node (1..24) 
+instances_per_node=21
+
+[env]
+# Name of desired Python environment modules to be loaded 
+modules=python/2.7.3-vanilla
+code=%(_ober)s/code
+_python_path=%(code)s/db-gene:%(code)s/lethal:%(code)s/famplot:%(code)s/network:%(code)s/impute:%(code)s/util
+
+[param]
+# 98 CGI Hutterites - FINDIVs 
+#selected=2912,3332,3531,3791,4032,4391,4471,4972,6012,7822,23482,23642,26452,28242,28831,29652,30441,30761,39002,97101,104962,105402,105452,105732,106561,106591,106592,106642,106932,107091,107312,107432,107762,107781,108452,108711,108781,108801,108841,108891,108942,109612,109721,110001,110232,110432,110592,110841,110871,110971,111092,111121,111151,111281,111391,111661,111701,111841,112312,112542,112702,115952,120522,121292,121451,121561,122032,124091,128631,158192,158222,158391,158721,159611,160141,160302,160422,160521,160841,161192,161461,161612,161762,162152,162442,162532,162892,163302,163312,163732,163982,164452,165512,165562,169012,170082,170582,170882
+# 98 CGI Hutterites - phasing indices 
+selected=355,944,1409,7,517,972,448,976,81,462,46,106,927,132,378,406,964,48,235,199,583,23,911,353,27,580,1066,616,617,1026,1053,124,405,1074,287,567,68,1104,1062,44,294,1110,1069,1056,188,1410,257,289,363,344,1162,409,167,274,300,581,14,633,423,1178,1321,1103,1174,1171,1325,1179,1177,1184,311,571,1234,484,483,673,594,1246,86,1054,789,248,803,807,827,857,871,876,762,887,888,1196,686,906,923,915,1170,1198,1150,1379
+sample=355,944,1409,7,517,972,448,976,81,462,46,106,927,132,378,406,964,48,235,199,583,23,911,353,27,580,1066,616,617,1026,1053,124,405,1074,287,567,68,1104,1062,44,294,1110,1069,1056,188,1410,257,289,363,344,1162,409,167,274,300,581,14,633,423,1178,1321,1103,1174,1171,1325,1179,1177,1184,311,571,1234,484,483,673,594,1246,86,1054,789,248,803,807,827,857,871,876,762,887,888,1196,686,906,923,915,1170,1198,1150,1379
+_predicate=<=
+
+[exec]
+data=%(_home)s/out/phasing
+# Placeholders that can be used in the rest of this section
+executable = python %(_ober)s/code/impute/batch/test/test_import.py 1>%(_out)s/node-%(_node)s/segments-%(_param)s.out
+transfer_input_files = %(data)s/%(_chrom)s/hutt.phased.npz, %(data)s/hutt.kinship
+transfer_output_files =

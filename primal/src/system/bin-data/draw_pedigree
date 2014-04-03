@@ -1,0 +1,46 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Draw a pedigree in PNG format using pedfiddler (a pipeline).
+# test data (tped) file.
+# 
+# Author: Oren E. Livne
+# Date:   14-AUG-2012
+#
+# See http://www.stat.washington.edu/thompson/Genepi/Pedfiddler.shtml
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 2 ]; then
+  echo "Usage: ${PROGNAME} <in_dat_file> <out_png_file>"
+  echo ""
+  echo "Draw a pedigree in PNG format using pedfiddler."
+  echo "Note: the pedfiddler distribution directory must be on your path."
+  echo "See http://www.stat.washington.edu/thompson/Genepi/Pedfiddler.shtml"
+  exit $E_BADARGS
+fi
+file=$1
+out=$2
+if [ ! -f $file ]; then
+    echo "Input file $file does not exist"
+    exit $E_BADARGS    
+fi
+file=$(readlink -f $file)
+
+# Temporary files
+file_name=`basename $file`
+pedc=/tmp/${file_name}.pedc
+out_eps=/tmp/${file_name}.eps
+
+list2pedc -o $pedc -s -a -l -N "255,0,0" -A "255,222,173" -U "255,255,255" $file
+pedc2ps -o $out_eps -t "Pedigree" -l -H 11 -W 8.5 -m 0.5 -T 18.0 -L 9.0 -I 14.0 -w 1.0 $pedc
+if [ ! -f $pedc ]; then
+    echo "list -> pedc conversion failed; check your pedigree structure."
+    exit -1
+fi
+convert -flatten $out_eps $out
+
+# Clean up
+#rm -f $pedc $out_eps

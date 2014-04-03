@@ -1,0 +1,17 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# CGI genotype counting progress monitoring script.
+#
+# Author: Oren E. Livne
+# Date:   11-APR-2013
+#--------------------------------------------------------------------
+
+chrom_total="${OBER_CODE}/impute/batch/cgi/chrom_total"
+out="$OBER_OUT/impute_cgi"
+
+for (( chrom=$1; chrom<=$2; chrom++ )); do
+    total=$(( 3 *  $( cat ${chrom_total} | sed '1d' | awk '{print $6}' | sed -n ${chrom},${chrom}p ) ))
+    done=$( wc -l `find $OBER_OUT/impute_cgi/count/chr${chrom} -name '*.out'` | grep total | awk '{print $1}' )
+    percentage=`printf "scale=2; 100.0*${done}/${total}\n" | bc`
+    printf "Chr %2d: %7d/%7d, %.2f%% completed\n" ${chrom} ${done} ${total} ${percentage}
+done

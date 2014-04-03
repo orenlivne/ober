@@ -1,0 +1,38 @@
+.. include globals.rst
+
+.. Gene imputation tools for founder populations, where detailed pedigrees are available.
+
+Welcome to impute's documentation!
+**********************************
+
+Introduction: What is Impute
+============================
+
+Impute phases and imputes a genotype data set for which pedigree is available.
+1. Topic 1
+2. Topic 2
+
+Dependencies
+============
+These are easiest to install within a python virtualenv.
+- See http://www.pip-installer.org/en/latest/installing.html for installing virtualenv and creating
+  a virtual environment. Then install:
+- nose
+- PIL
+- networkx 1.7+
+- numpy 1.6.2+
+- scipy 0.10.1+ (you may need to compile BLAS, LAPACK from sources. Make sure to compile with -fPIC)
+
+Environment Variables
+=====================
+- OBER: directory containing the OBER svn tree
+- TEST_DATA_DIR: directory containing test data files to run the test suite
+
+Directories
+===========
+- batch: cluster batch bash scripts
+  - batch/lethal: lethal mutation identification via lack of HBD children in at-risk families
+  - batch/phasing: phasing and imputation pipeline
+- db: database SQL scripts (database of IBD segments, SNP annotations)
+- impute: python code - main package
+- tests: python unit tests

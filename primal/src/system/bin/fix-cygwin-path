@@ -1,0 +1,8 @@
+#!/bin/bash
+# Convert a Windows path to a Unix Path. Useful on Cygwin.
+
+if [ $OSTYPE == 'cygwin' ]; then
+  echo $1 | sed 's/^\/cygdrive\/c\//c:\//g'
+else
+  echo $1
+fi

@@ -1,0 +1,68 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# part of split-segments that runs in parallel. Splits a single
+# part.
+#
+# Author: Oren E. Livne
+# Date:   17-JUN-2013
+#----------------------------------------------------------------
+
+file="$1"
+dir_prefix="$2"
+dir_suffix="$3"
+part_prefix="$4"
+nodes="$5"
+instances_per_node="$6"
+region_size="$7"
+dir_prefix_size="$8"
+part_prefix_size="$9"
+snps="${10}"
+part="${11}"
+
+#echo "--------------- split-segments-do-part ---------------"
+#echo "args" "$@"
+#echo "file" $file 
+#echo "dir_prefix" $dir_prefix
+#echo "dir_suffix" $dir_suffix
+#echo "part_prefix" $part_prefix
+#echo "nodes" $nodes
+#echo "instances_per_node" $instances_per_node 
+#echo "region_size" $region_size 
+#echo "dir_prefix_size" $dir_prefix_size
+#echo "part_prefix_size" $part_prefix_size
+#echo "snps" $snps 
+#echo "part" $part
+
+(( regions = (snps + region_size - 1) / region_size ))
+(( parts = instances_per_node * nodes ))
+(( regions_per_part = regions / parts ))
+(( larger_parts = regions - regions_per_part * parts ))
+
+# Compute identifiers of part, node (left-pad 0's to match the split command and desired output)
+part_id=`printf "%0${part_prefix_size}d\n" ${part}`
+node_id=`printf "%0${dir_prefix_size}d\n" $(( ${part}/${instances_per_node} ))`
+    
+node_dir="${dir_prefix}${node_id}${dir_suffix}"
+part_file="${node_dir}/${part_prefix}${part_id}${part_suffix}"
+
+# Create region list file
+(( region_start = part * regions_per_part ))
+if [[ ${part} -lt ${larger_parts} ]]; then
+    (( region_start = region_start + part ))
+else
+    (( region_start = region_start + larger_parts ))
+fi
+(( region_stop = region_start + regions_per_part - 1 ))
+if [[ ${part} -lt ${larger_parts} ]]; then
+    (( region_stop = region_stop + 1 ))
+fi
+
+if [[ ${region_start} -le ${region_stop} ]]; then
+    mkdir -p ${node_dir}
+
+    seq ${region_start} ${region_stop} > ${part_file}.in
+    echo "part" $part $region_start"-"$region_stop "snps" $(( region_start * region_size))"-"$(( (region_stop + 1) * region_size))
+    
+   # Extract segments assigned to this part
+    cat ${file} | find-segments-of-snp-range $(( region_start * region_size)) $(( (region_stop + 1) * region_size)) > ${part_file}.dat
+fi

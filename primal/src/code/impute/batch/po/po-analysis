@@ -1,0 +1,15 @@
+#!/bin/bash
+# PO top two hits data transformation for boxplots
+
+# Transform PO ped file into a file of sorted haplotypes (paternal,maternal) at each hit
+paste -d' ' <(awk 'NR % 2 == 1' PO_hits.ped) <(awk 'NR % 2 == 0' PO_hits.ped) | awk '{ if (NR==1) offset=NF/2; printf "%d", $2/10; for (i = 7; i <= NF/2; i += 2) printf " %s %s", $i, $(offset+i); printf "\n"; }' | sort -k 1,1 > po-haps.txt 
+
+# Hit 1
+join --check-order -j 1 <(awk -v snp=1 '{ print $1, $(2*snp), $(2*snp+1); }' po-haps.txt) <(sed '1d' abseosCombnormSNP.ph-cvt | cut -f 1,2 | sort -k 1,1) > po-eosinophil.txt
+head -3 PO_hits.csv | tail -1 > eosinophil.metadata
+
+# Hit 2
+join --check-order -j 1 <(awk -v snp=2 '{ print $1, $(2*snp), $(2*snp+1); }' po-haps.txt) <(sed '1d' LDLcombSNP.ph-cvt| cut -f 1,2 | sort -k 1,1) > po-LDL.txt
+head -2 PO_hits.csv | tail -1 > LDL.metadata
+
+python ${OBER_CODE}/impute/impute/poo/poo_box_plot.py /home/oren/ober/out/poo "eosinophil LDL"

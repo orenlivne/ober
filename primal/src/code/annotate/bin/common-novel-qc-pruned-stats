@@ -1,0 +1,47 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Variant type counts, per Carole's email:
+#
+# Can you tell me (again) how many SNPs and indels (insertions or deletions)
+# were in the LD pruned file you made for Minal/Darren . (MAF>5%). Can you
+# break it down by SNPs, insertions, deletions.
+#
+# Then can you tell me how many of those are among the URE/rare variants? I
+# want to describe this in a grant I'm writing.
+# non-substitution variants that passed QC. Use the annotations
+#
+# Author: Oren E. Livne
+# Date:   28-FEB-2014
+#----------------------------------------------------------------
+
+annotations="${OBER_OUT}/impute_cgi/annotations/data.mysql.qc"
+ure_annotations="${OBER_OUT}/impute_cgi/data-sets/common-novel-qc/annotations.tsv"
+pruned="${OBER_OUT}/impute_cgi/data-sets/qc-pruned/qc.pruned.bim"
+pruned_vartype="${OBER_OUT}/impute_cgi/data-sets/qc-pruned/qc.pruned.vartype"
+pruned_ure_vartype="${OBER_OUT}/impute_cgi/data-sets/qc-pruned/qc.pruned.ure.vartype"
+
+# Create a sub-annotation file of all rare URE SNPs
+# Type 1 SNPs: no RS#, CEU MAF = 0, Hutt MAF >= 5% (with CGI IDs, passed QC. Exclude substitutions.)
+# Type 2 SNPs: RS#, CEU MAF < 1%, Hutt MAF >= 5% (with CGI IDs, passed QC. Exclude substitutions.)
+# Type 3 SNPs: RS#, 1 <= CEU MAF < 5%, Hutt MAF >= 10% (with CGI IDs, passed QC. Exclude substitutions.)
+if [ ! -f ${ure_annotations} ]; then
+awk '((($78 == 0) && ($79 == 0) && ($81 >= 0.05) && ($76 == 1) && ($3 > 0) && ($7 != "sub")) ||
+      (($78 == 1) && ($79 < 0.01) && ($81 >= 0.05) && ($76 == 1) && ($3 > 0) && ($7 != "sub")) ||
+      (($78 == 1) && ($79 >= 0.01) && ($79 < 0.05) && ($81 >= 0.10) && ($76 == 1) && ($3 > 0) && ($7 != "sub")))' ${annotations} > ${ure_annotations}
+fi
+
+# Extract variant type of all LD-pruned SNPs
+if [ ! -f ${pruned_vartype} ]; then
+    join -j 1 <(cut -f 2 ${pruned} | sort) <(cut -f 3,7 ${annotations} | sort -k 1,1) > ${pruned_vartype}
+fi
+# print vartype frequency
+cut -f 2 -d' ' ${pruned_vartype} | sort | uniq -c
+wc -l ${pruned_vartype}
+
+# Repeat for URE SNPs (i.e., find which are pruned, extract vartype, print frequency)
+if [ ! -f ${pruned_ure_vartype} ]; then
+    join -j 1 <(cut -f 2 ${pruned} | sort) <(cut -f 3,7 ${ure_annotations} | sort -k 1,1) > ${pruned_ure_vartype}
+fi
+# print vartype frequency
+cut -f 2 -d' ' ${pruned_ure_vartype} | sort | uniq -c
+wc -l ${pruned_ure_vartype}

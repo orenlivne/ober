@@ -1,0 +1,159 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Output variants are in the Hutterite CGI genomes in a genomic
+# region and the LD is between those variants and a specified
+# variant.
+#
+# Prerequisite python packages: pyliftover, Biopython
+# 
+# Author: Oren E. Livne
+# Date:   17-FEB-2014
+#----------------------------------------------------------------
+
+# Constants
+DARGS=65
+PROGNAME=`basename $0`
+PLINK="plink --noweb --nonfounders"
+
+#=======================================
+# Read input parameters
+#=======================================
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Base-pair coordinate build
+    build="hg19"
+    # RS number to calculate LD against
+    rs=""
+
+    # Read input arguments
+    while getopts "hb:r:" optionName; do
+	case "$optionName" in
+	    b) build="$OPTARG";;
+	    r) rs="$OPTARG";;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 4 ]]; then
+  	echo "chromosome, start and stop positions, and out prefix are required."
+	print_type_for_help
+    fi
+    chrom="$1"
+    start_bp="$2"
+    stop_bp="$3"
+    out="$4"
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} [flags] <chrom> <start-bp> <stop-bp> <out-file-prefix>"
+    echo -e ""
+    echo -e "Output variants are in the Hutterite CGI genomes in a genomic"
+    echo -e "region and the LD is between those variants and a specified variant."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-b build\tGenetic build (hg17|hg18|hg19). Default: ${build}"
+    echo -e "\t-r bp\t\tRS number to calculate LD against, if non-empty. Default: ${rs}"
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit ${E_BADARGS}
+}
+
+#=======================================
+# Business Logic
+#=======================================
+# Convert coordinate to build 37 (hg19). Uses the python lyliftover library.
+function hg19_convert
+{
+    from_or_to="$1"
+    build="$2"
+    chrom="$3"
+    bp="$4"
+    if [[ "${from_or_to}" == "from" ]]; then
+	from="${build}"
+	to='hg19'
+    else
+	from='hg19'
+	to="${build}"
+    fi
+    case "${build}" in
+	hg19) 
+	    echo $bp
+	    ;;
+	hg17|hg18)
+	    python -c "from pyliftover import LiftOver; lo = LiftOver('${from}', '${to}'); print '%d' % (lo.convert_coordinate('chr${chrom}', ${bp})[0][1])"
+	    ;;
+	*)
+	    echo "Unsupported build ${build}."
+	    print_type_for_help
+	    ;;
+    esac
+}
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+dir="$PWD"
+
+# Convert to hg19 coordinates
+start_bp=$(hg19_convert "from" ${build} ${chrom} ${start_bp})
+stop_bp=$(hg19_convert "from" ${build} ${chrom} ${stop_bp})
+
+# Retrieve CGI variant IDs of Hutterite variants in the specified range
+tmp=`mktemp -d`
+cd ${tmp}
+gtabix ${chrom} ${start_bp}-${stop_bp} | awk '{print $1, $2, $3, $4, $5, $6, $7}' > ${out}
+awk '{print $1}' ${out} > ${out}.id
+
+if [[ -n ${rs} ]]; then
+    # Extract variants and calculate LD
+
+    # Find the location of the RS variant on the chromosome
+    rs_location=`echo ${rs} | rs_coord.py`
+    if [[ $? != 0 ]]; then
+	echo "Error retrieving genetic coordinate of RS# ${rs}"
+    fi
+    rs_chrom=`echo ${rs_location} | awk '{print $1}'`
+    if [[ "${rs_chrom}" != "${chrom}" ]]; then
+	echo "RS variant must reside on the same chromosome as the genomic range"
+    fi
+    rs_bp=`echo ${rs_location} | awk '{print $2}'`
+    rs_variant_id=`gtabix ${chrom} ${rs_bp} | awk '{print $1}'`
+#    echo "RS variant: ${rs} (chr${chrom}:${rs_bp})"
+#    printf "CGI variants in range chr${chrom}:${start_bp}-${stop_bp}: %d\n" `wc -l ${out}.id | awk '{print $1}'`
+
+    # Add RS # to list of variants since it might be outside the bp range
+    echo "${rs_variant_id}" >> ${out}.id
+    # Extract variants + RS into a separate PLINK file
+    ${PLINK} --bfile ${im2}/imputed_cgi.chr${chrom} --extract ${out}.id --make-bed --out ${out} >& /dev/null
+    # Calculate LD between RS and all other variants in the small PLINK file
+    # PLINK requires removing family information for that to work
+    awk '{print $1, $2, 0, 0, $5, $6}' ${out}.fam > ${out}.fam.noped
+    ${PLINK} --bed ${out}.bed --fam ${out}.fam.noped --bim ${out}.bim --out ${out} --r2 \
+	--ld-snp ${rs_variant_id} --ld-window-kb 10000000 --ld-window 9999999 --ld-window-r2 0 >& /dev/null
+    paste \
+	<(sed '1d' ${out}.ld) \
+	<(sed '1d' ${out}.ld | awk '{print $4, $5}' | lift_over.py hg19 ${build}) \
+	| sort -k 7,7 -g -r \
+	| awk -v chrom=${chrom} -v build=${build} 'BEGIN {printf "\"CGI ID\",\"CHROM\",\"BASE PAIR hg19\",\"BASE PAIR %s\",\"R2\"\n", build; } {printf "%s,%s,%s,%s,%s\n", $6, chrom, $5, $8, $7;}'
+else
+    # Just extract variants
+    ${PLINK} --bfile ${im2}/imputed_cgi.chr${chrom} --extract ${out}.id --make-bed --out ${out}
+fi
+mv ${tmp}/${out}.{bed,bim,fam} ${dir}
+    
+# Clean up
+#echo ${tmp}
+rm -rf ${tmp}

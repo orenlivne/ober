@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# Set up Condor environment
+
+export CONDOR_HOME="/home/condor/condor-home"
+export CONDOR_CONFIG="$CONDOR_HOME/etc/condor_config"
+export CONDOR_SVN="/home/condor/scheduler"
+export PATH="$CONDOR_SVN/condor/bin:$CONDOR_HOME/bin:$CONDOR_HOME/sbin:$PATH"

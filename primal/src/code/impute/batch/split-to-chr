@@ -1,0 +1,102 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Split a SNP PLINK data set into chromosomal
+# data sets (to be run on Beagle or on a machine with a lot of
+# RAM where an entire chromosome fits).
+# 
+# Author: Oren Livne
+# Date: 23-JAN-2013
+#----------------------------------------------------------------
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+BATCH_HOME="${OBER}/code/impute/batch"
+
+function read_input_args
+{
+	#%%%%%%%%%%%%%%%%%%%%%%%%
+        # Default argument values
+	#%%%%%%%%%%%%%%%%%%%%%%%%
+	# Output directory
+    out_dir="."
+	# Path to python executable
+    if [ "x${PYTHON_EXEC}" != "x" ]; then
+	  python_exec="${PYTHON_EXEC}"
+    else
+	  python_exec=`which python`
+    fi
+    # Start chromosome index to process 
+    start_chr=1
+    # End chromosome index to process 
+    stop_chr=22
+	# Perform BIM conversion
+    do_bim=false
+    # Identity coefficient file
+    id_coef="${OBER_DATA}/hutt/hutt.id"
+    
+    # Read input arguments
+    while getopts "hbp:s:e:i:" optionName; do
+	case "$optionName" in
+	    p) python_exec="$OPTARG";;
+	    s) start_chr="$OPTARG";;
+	    e) stop_chr="$OPTARG";;
+	    i) id_coef="$OPTARG";;
+	    b) do_bim=true;;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+	esac
+    done
+    
+	# Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 2 ]]; then
+  	  echo "PLINK data set prefix and output directory must be specified."
+	  print_type_for_help
+    fi
+    input_path="$1"
+    input_dir=`dirname "$1"`
+    input_file=`basename "$1"`
+    
+    # Argument validation
+    # Convert out_dir from potentially relative to absolute path
+    out_dir=`readlink -f ${out_dir}`
+}
+
+function print_usage
+{
+    echo "Usage: $PROGNAME [flags] <plink-data-set> <out-dir>"
+    echo -e ""
+    echo "Split a PLINK data set into chromosomal data sets to be phased."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-p python-exec \tPath to the desired python executable. Default: ${python_exec}"
+    echo -e "\t-s start-chr\tStart processing from this chromosome index. Default: ${start_chr}"
+    echo -e "\t-e stop-chr\tStop processing at this chromosome index. Default: ${stop_chr}"
+    echo -e "\t-i id-coef\tIdentity coefficient file. Default: ${id_coef}"
+    echo -e "\t-b\t\tOnly convert BIM; don't extract chromosomes."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+# Generate extra data set files
+if $do_bim; then
+    python `to-unix-path ${BATCH_HOME}/gather_data.py` ${input_path}.bim
+else
+  for (( c = start_chr; c <= stop_chr; c++ )); do
+      python `to-unix-path ${BATCH_HOME}/split.py` -i ${id_coef} ${input_path} $c ${input_dir}/chr$c/${input_file}
+  done
+fi

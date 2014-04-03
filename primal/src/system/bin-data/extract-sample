@@ -1,0 +1,27 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Extract a sample of rs SNPs from an existing plink file into a
+# test data (tped) file.
+# 
+# Author: Oren E. Livne
+# Date:   08-JUL-2012
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 3 ]; then
+  echo "Usage: ${PROGNAME} <plink_in_file> <num_snps> <out>"
+  echo ""
+  echo "Extract the first num_snps rs snps in the plink file"
+  echo "plink_in_file into a test data (tped) output file out."
+  echo "Requires a plink installation on the path."
+  exit $E_BADARGS
+fi
+data=$1
+sample_size=$2
+out=$3
+
+snps=`grep "rs" $1.nof | head -${sample_size} | awk '{print $1}' | perl -e '@a = <STDIN>; chomp @a; print join(",",@a)'`
+plink --noweb --tfile $data --transpose --out $out --snps $snps --recode12

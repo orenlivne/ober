@@ -1,0 +1,106 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Count genotypes in a CGI/imputed genotype file.
+#
+# Author: Oren E. Livne
+# Date:   10-APR-2013
+#--------------------------------------------------------------------
+#=======================================
+# Read input parameters
+#=======================================
+# Constants
+DARGS=65
+PROGNAME=`basename $0`
+offset="9"     # Column number of first genotype
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Name of file with list of sample indices
+    sample_index=""
+    # Output variant_id as the first column
+    print_variant_id=false
+	
+    # Read input arguments
+    while getopts "hvi:" optionName; do
+	case "$optionName" in
+	    i) sample_index="$OPTARG";;
+	    v) print_variant_id=true;;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 0 ]]; then
+  	echo "No args should be specified."
+	print_type_for_help
+    fi
+#    work_dir="$1"
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} [flags]"
+    echo -e ""
+    echo -e "Count genotypes in a CGI/imputed genotype file."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-i sample-index\tName of file with list of sample indices to use. If empty, uses all samples."
+    echo -e "\t-v\t\tOutput variant_id as the first column."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#=======================================
+# Genotype Counting
+#=======================================
+# Count genotypes in a single input line. Accepts the input line. Relies on global variables
+# set in the main program below.
+function count_genotypes
+{
+    echo "$1" | cut -f ${sample_columns} | perl -nle "${perl_cmd}"
+}
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+# Filter to a subset of samples, if sample_index is specified
+if [ -n "${sample_index}" ]; then
+    sample_columns=`cat ${sample_index} | awk "{ print \\\$1+${offset[$cnt]} }" | paste -sd,`
+else
+    sample_columns="$(( ${offset[$cnt]} ))-1000000"
+fi
+
+# Read the first input line, calculate number of samples
+read line
+num_samples=`echo "${line}" | cut -f ${sample_columns} | awk "{print NF}"`
+
+perl_cmd="%c=(\"NN\",0,\"N0\",0,\"N1\",0,\"0N\",0,\"00\",0,\"01\",0,\"1N\",0,\"10\",0,\"11\"); @genotypes = split(/\t/, \$_); for (my \$i = %START_FIELD%; \$i <= \$#genotypes; \$i++) { \$c{\$genotypes[\$i]}++; }; printf \"%ID_FMT%%d %d %d %d %d %d %d %d %d %f %f\n\", %ID_VALUE% \$c{\"NN\"}, \$c{\"N0\"}, \$c{\"N1\"}, \$c{\"0N\"}, \$c{\"00\"}, \$c{\"01\"}, \$c{\"1N\"}, \$c{\"10\"}, \$c{\"11\"}, 1.0 - \$c{\"NN\"}/${num_samples}, (\$c{\"00\"}+\$c{\"01\"}+\$c{\"10\"}+\$c{\"11\"})/${num_samples};"
+if $print_variant_id; then
+    # Include variant ID column
+    sample_columns="1,${sample_columns}"
+    perl_cmd=$( echo "${perl_cmd}" | sed -e 's/%START_FIELD%/1/g' -e 's/%ID_FMT%/%s /g' -e 's/%ID_VALUE%/$genotypes[0],/' )
+else
+    # Don't include variant ID column
+    perl_cmd=$( echo "${perl_cmd}" | sed -e 's/%START_FIELD%/0/g' -e 's/%ID_FMT%//g' -e 's/%ID_VALUE%//' )
+fi
+
+# Process the first input line -- no need, apparently covered by the while loop that follows. Why though??
+#count_genotypes "${line}" ${num_samples} "${sample_columns}" "${perl_cmd}"
+
+# Process the rest of the input lines
+while read line; do
+    count_genotypes "${line}" ${num_samples} "${sample_columns}" "${perl_cmd}"
+done < /dev/stdin

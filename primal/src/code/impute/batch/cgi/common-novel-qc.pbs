@@ -1,0 +1,29 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Create GWAS data set for Catherine (novel common QC'ed SNVs)
+#
+# Assumes the list of variants is in
+# ${OUT_DIR}/common-novel-qc.txt
+#-----------------------------------------------------------------
+#PBS -l walltime=01:00:00
+#PBS -l mppwidth=24
+#PBS -N common_novel_qc
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+OUT_DIR="${OBER_OUT}/impute_cgi/data-sets/common-novel-qc"
+
+aprun -n 1 -N 1 -d 24 ${OBER_CODE}/impute/batch/cgi/common-novel-qc.sh ${OUT_DIR}
+
+# Transfer files to permanent CRI storage
+cd ${OUT_DIR}
+chmod 644 *
+rsync -aq ./ olivne@bios.cri.uchicago.edu:/group/ober-resources/users/olivne/data-sets/common-novel-qc/

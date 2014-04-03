@@ -1,0 +1,78 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Run all tests in all projects of this code directory.
+# 
+# Author: Oren E. Livne
+# Date: 01-JUN-2012
+#----------------------------------------------------------------
+
+#------------------------------
+# Constants
+#------------------------------
+# Top-level directory of code repository checked-out copy
+CODE="$OBER/code"
+
+# Project names
+ALL_PROJECTS="impute misc util network hera lethal db-gene"
+
+# Project types
+declare -A TYPE
+TYPE[impute]='python'
+TYPE[misc]='python'
+TYPE[util]='python'
+TYPE[network]='python'
+TYPE[hera]='django'
+
+#------------------------------
+# Test a normal python project
+#------------------------------
+function test_python_project {
+  nosetests
+}
+
+#------------------------------
+# Test a django app
+#------------------------------
+function test_django_project {
+  # Our noser unit test suite script. Run against django main database, I think.
+  python ./unittests.py
+  # Django test suite. Run against django test database.
+  ./manage.py test
+}
+
+#------------------------------
+# Test a project by name.
+# Arguments: <project name>
+#------------------------------
+function test_project {
+    project=$1
+    project_type=${TYPE[$project]}
+    echo "Testing project $project ($project_type)..."
+    cd $CODE/$project
+    case "$project_type" in
+	'python')
+          test_python_project
+          ;;
+	'django')
+   	  test_django_project
+	  ;;
+	*) 
+	  echo "Unsupported project type $1"
+	  exit -1
+          ;;
+    esac
+}
+
+#------------------------------
+# Main Program
+#------------------------------
+# Read input arguments
+if [ $# -lt 1 ]; then
+    projects="$ALL_PROJECTS"
+else
+    projects="$@"
+fi
+
+for project in $projects; do
+    test_project $project
+done

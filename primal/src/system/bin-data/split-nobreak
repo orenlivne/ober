@@ -1,0 +1,109 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Split a file into equal roughly chunks without breaking lines.
+# Organize in nodal directories and parts of every node.
+#
+# @ see http://stackoverflow.com/questions/7764755/unix-how-do-a-split-a-file-into-equal-parts-withour-breaking-the-lines
+#
+# Author: Oren E. Livne
+# Date:   15-FEB-2013
+#----------------------------------------------------------------
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # #Digits in node directory names
+    dir_prefix_size=""
+    
+    # Read input arguments
+    while getopts "ha:b:" optionName; do
+	case "$optionName" in
+	    a) dir_prefix_size="$OPTARG";;
+	    b) part_prefix_size="$OPTARG";;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+	esac
+    done
+    
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 7 ]]; then
+  	echo "7 mandatory args expected."
+	print_type_for_help
+    fi
+    file="$1"
+    dir_prefix="$2"
+    dir_suffix="$3"
+    part_prefix="$4"
+    part_suffix="$5"
+    nodes="$6"
+    instances_per_node="$7"
+
+    (( parts = nodes * instances_per_node ))
+    if [[ "x${dir_prefix_size}" == "x" ]]; then
+	dir_prefix_size=$(prefix_size ${nodes})
+    fi
+    if [[ "x${part_prefix_size}" == "x" ]]; then
+	part_prefix_size=$(prefix_size ${parts})
+    fi
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} <file> <dir-prefix> <dir-suffix> <part-prefix> <part-suffix> <nodes> <instances_per_node>"
+    echo -e ""
+    echo -e "Split a file into roughly equal chunks without breaking lines."
+    echo -e "nodes = #directories. instances_per_node=#parts per directory."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-a dir-suffix-len\tSuffix length to use for node directories."
+    echo -e "\t-b part-suffix-len\tSuffix length to use for part files."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#=======================================
+# Misc Functions
+#=======================================
+function prefix_size
+{
+    echo "$1" | python -c "import sys, math; print int(math.ceil(math.log10(float(sys.stdin.readlines()[0]))))"
+}
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+# Split the actual file, maintaining lines.
+#split -a ${part_prefix_size} -d --lines=${lines_per_file} ${file} ${part_prefix}
+#total_lines=`wc -l ${file} | awk '{print $1}'`
+#((lines_per_file = (total_lines + parts - 1) / parts))
+split -a ${part_prefix_size} -d -n l/${parts} ${file} ${part_prefix}
+
+# Move part files into node directories
+for (( part = 0; part < ${parts}; part++ )); do
+    # Compute identifiers of part, node (left-pad 0's to match the split command and desired output)
+    part_id=`printf "%0${part_prefix_size}d\n" ${part}`
+    node_id=`printf "%0${dir_prefix_size}d\n" $(( ${part}/${instances_per_node} ))`
+
+    # Move part file to its location and add suffix
+    node_dir=${dir_prefix}${node_id}${dir_suffix}
+    part_file=${part_prefix}${part_id}
+    mkdir -p ${node_dir}
+    mv ${part_file} ${node_dir}/${part_file}${part_suffix}
+done

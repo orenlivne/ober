@@ -1,0 +1,18 @@
+####################
+##
+## Test Condor command file
+##
+####################
+
+universe	= vanilla
+executable	= addone
+output		= /home/oren/ober/system/condor/examples/dag/out/addone_parallel_$(chr)_$(index).out
+error		= /home/oren/ober/system/condor/examples/dag/out/addone_parallel_$(chr)_$(index).err
+log		= /home/oren/ober/system/condor/examples/dag/out/addone_parallel_$(chr)_$(index).log
+arguments	= input$(index) output$(index)
+should_transfer_files   = YES
+transfer_input_files    = input$(index)
+when_to_transfer_output = ON_EXIT
+Initialdir      = /home/oren/ober/system/condor/examples/dag
+notification    = Never
+queue

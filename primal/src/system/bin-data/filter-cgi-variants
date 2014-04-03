@@ -1,0 +1,95 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Filter CGI variants to those above a call rate threshold. 
+#
+# Author: Oren E. Livne
+# Date:   20-FEB-2013
+#----------------------------------------------------------------
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Start chromosome index to process 
+    start_chr=1
+    # End chromosome index to process 
+    stop_chr=22
+    # Call rate threshold
+    call_rate=0.95
+    # Clean output dir first
+    do_clean=false
+    # Generate pipeline files
+    do_create=false
+    # Run pipeline
+    do_run=false
+    # Execute phasing stage
+    do_phasing=false
+	
+    # Read input arguments
+    while getopts "hps:e:c:" optionName; do
+	case "$optionName" in
+	    s) start_chr="$OPTARG";;
+	    e) stop_chr="$OPTARG";;
+	    c) call_rate="$OPTARG";;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 2 ]]; then
+  		echo "CGI file prefix, output file prefix must be specified."
+	print_type_for_help
+    fi
+	prefix=$1
+	out_prefix=$2
+}
+
+function print_usage
+{
+  	echo -e "Usage: ${PROGNAME} <file-prefix> <out-prefix>"
+  	echo -e ""
+  	echo -e "Filter CGI variants to those above a call rate threhold in each chromosome."
+  	echo -e "Produces files with SNP indices (= 0-based line numbers) that pass QC."   
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-s start-chr\tStart processing from this chromosome index. Default: ${start_chr}"
+    echo -e "\t-e stop-chr\tStop processing at this chromosome index. Default: ${stop_chr}"
+    echo -e "\t-c call-rate\tMinimum genotype call rate to admit. Default: ${call_rate}"
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+printf "%-8s %-8s\n" "Chr" "% left"
+for i in `seq ${start_chr} 1 ${stop_chr}`; do
+	file=$prefix$i.tsv.gz
+	out_file=$out_prefix$i.snp
+	# Considering full genotype calls only (columns 3,6,12,15 in the count_cgi_genotypes.py output)
+	( \
+	zcat $file | sed '1d' | count_cgi_genotypes.py -s | \
+	awk {'printf "%s %f\n",$0,($3+$6+$12+$15); if ($3+$6+$12+$15 >= 0.95) { print NR-1}'} \
+	) >& $out_file
+	a=`wc -l $out_file | awk {'print $1'}`
+	b=`zcat $file | sed '1d' | wc -l | awk {'print $1'}`
+	p=`echo "scale=2;(100.0*${a})/${b}" | bc` 
+	printf "%-8d %6.2f\n" $i $p
+done

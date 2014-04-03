@@ -1,0 +1,57 @@
+#----------------------------------------------------------
+# PBS submission configuration
+# 1415x1415 IBD segment indexing
+#----------------------------------------------------------
+# Separate field values by commas.
+# Reserved variables:
+# * _mem - node RAMDISK location
+# * _node - node number
+# * _param - textual representation of parameter configuration in the parameterized run
+
+[DEFAULT]
+# Start all parameter names in this section with underscores
+_home=/lustre/beagle/ober/users/oren
+_ober=%(_home)s/ober
+# Node RAMDISK location or fast scratch space
+_mem=/dev/shm
+# Number of SNPs per chromosomal region in index
+_region_size=100
+# Name of the entire job
+_job=index_segments
+# Number of processes to spawn
+_processes=1
+
+[pbs]
+# Name of the entire job
+job_name=%(_job)s
+# Queue to submit to
+queue=batch
+# Job time (00:30:00 means 30 minutes. Queues may have restrictions.)
+walltime=48:00:00
+# Beagle project ID to charge jobs to
+project=CI-MCB000155
+# How many nodes to use
+nodes=5
+# How many cores to use in each node (1..24) 
+instances_per_node=1
+# Processes (= aprun -d flag value)
+#processes=%(instances_per_node)s
+processes=%(_processes)s
+
+[env]
+# Name of desired Python environment modules to be loaded 
+modules=python/2.7.3-vanilla
+code=%(_ober)s/code
+_python_path=%(code)s/db-gene:%(code)s/lethal:%(code)s/famplot:%(code)s/network:%(code)s/impute:%(code)s/util
+
+[param]
+#region_num=0:%(_num_regions)s
+region_num=30,31,32,33,34
+[exec]
+#regions=30,31,32,33,34
+data=%(_home)s/out/phasing/%(_chrom)s
+out=%(_home)s/out/index_segments/%(_chrom)s
+# Placeholders that can be used in the rest of this section
+executable = python %(_ober)s/code/impute/impute/ibd/index/index_segments.py -p %(_processes)s -v 1 -a amg -w %(regions)s -l 0.4 -r %(_region_size)s - %(_mem)s/hutt.phased.info.npz %(_mem)s/segments.out %(out)s 1>%(_out)s/%(_job)s/node-%(_node)s/%(_job)s-%(_param)s.out
+transfer_input_files = %(data)s/hutt.phased.info.npz, %(data)s/segments.out
+transfer_output_files =

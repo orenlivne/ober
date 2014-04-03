@@ -1,0 +1,22 @@
+##################################################
+# diamond.dag
+#
+# Simple example of a "diamond-shaped" DAG
+##################################################
+
+# Nodes
+Job  A  split_file.sub
+Job  B  addone_parallel.sub
+Job  C  addone_parallel.sub
+Job  D  merge_file.sub
+VARS B chr="0" index="0"
+VARS C chr="0" index="1"
+
+# Edges
+PARENT A CHILD B C
+PARENT B C CHILD D
+
+# Failure retrys
+Retry  B 2
+Retry  C 2
+

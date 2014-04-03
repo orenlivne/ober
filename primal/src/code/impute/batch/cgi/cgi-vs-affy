@@ -1,0 +1,10 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Find Affy SNPs in the 3-chip union that are not in the CGI
+# data set.
+# 
+# Author: Oren E. Livne
+# Date:   20-MAY-2013
+#----------------------------------------------------------------
+zcat $OBER_OUT/impute_cgi/genotypes/*.gz | cut -f 8 | grep -o "rs[0-9]*" | sort > $OBER_DATA/hutt/affy/cgi_variants.list
+cut -f 2 $OBER_DATA/hutt/affy/hutt.3chips.clean.bim | sort > affy.list

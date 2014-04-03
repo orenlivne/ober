@@ -1,0 +1,67 @@
+#!/bin/bash
+# inotifywait watches directory for changes and chmods
+#
+# Version:	inotifywait 2012-03-28 ray@xphoniexx.net
+#
+
+### BEGIN INIT INFO
+# Provides:         inotifywait
+# Required-Start:    
+# Required-Stop:     
+# Default-Start:    2 3 4 5
+# Default-Stop:     0 1 6
+### END INIT INFO
+
+FIRST=no
+
+MONITORS="$2"
+USER="$3"
+GROUP="$4"
+FORMAT="%w/%f"
+EVENTS="moved_to,create"
+FLAGS=" -m -q -r"
+PIDFILE="/var/run/inotifywait.pid"
+
+
+
+
+inotifywaits()
+{
+    [ ! -x $CMD ] && return 1
+    [ ! -r /etc/default/rcS ] || . /etc/default/rcS
+
+    . /lib/lsb/init-functions
+
+    case "$1" in
+	start)
+        echo "Starting inotifywait on $MONITORS:"
+        $(/usr/bin/inotifywait $FLAGS --format="${FORMAT}" --event="${EVENTS}" $MONITORS | xargs -I{} chown ${USER}:${GROUP} {} ) &
+        sleep 1
+        /bin/pidof inotifywait > $PIDFILE
+        return 0
+	    ;;
+	stop)
+        if [ -f $PIDFILE ]
+        then
+            echo "Stopping inotifywait:"
+            kill -9 $(cat $PIDFILE )  > /dev/null 2>&1
+            rm $PIDFILE > /dev/null 2>&1
+            return 0
+        else
+            echo "No PID file found at $PIDFILE. Try $0 forcestop"
+        fi
+        ;;
+    forcestop)
+        echo "Killing all inotifywait:"
+        killall -9 inotifywait > /dev/null 2>&1
+        rm $PIDFILE > /dev/null 2>&1
+        return 0
+	    ;;
+	*)
+	    echo "Usage: $0 {start|stop|forcestop}"
+	    return 1
+	    ;;
+    esac
+}
+
+inotifywaits "$@"

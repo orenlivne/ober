@@ -1,0 +1,34 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Merge all PO imputed plink files into a master bed file.
+# Extract useful sub data-sets.
+#-----------------------------------------------------------------
+#PBS -l walltime=08:00:00
+#PBS -l mppwidth=24
+#PBS -N merge_plink
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+imputed_data_dir="${OBER_OUT}/impute_cgi/imputed-override3"
+aprun -n 1 -N 1 -d 24 bash -x ${OBER_CODE}/impute/batch/cgi/merge-plink-po.sh ${imputed_data_dir}
+
+#-----------------------------------------------------------------
+# Transfer files to permanent CRI storage
+#-----------------------------------------------------------------
+SRC_DIR="${OBER_OUT}/impute_cgi/data-sets/qc-pruned-po" # Local data sets dir
+DEST_DIR="/group/ober-resources/users/olivne/data-sets/qc-pruned-po" # Remote data sets dir
+rsync -apq ${SRC_DIR}/ olivne@bios.cri.uchicago.edu:${DEST_DIR}/
+ssh olivne@bios.cri.uchicago.edu "chmod -R a+rX-w ${DEST_DIR} ; chmod -R u+w ${DEST_DIR}" # Set proper permissions
+
+SRC_DIR="${imputed_data_dir}" # Local data sets dir
+DEST_DIR="/group/ober-resources/users/olivne/out/impute_cgi/imputed-override3" # Remote data sets dir
+rsync -apq ${SRC_DIR}/ olivne@bios.cri.uchicago.edu:${DEST_DIR}/
+ssh olivne@bios.cri.uchicago.edu "chmod -R a+rX-w ${DEST_DIR} ; chmod -R u+w ${DEST_DIR}" # Set proper permissions

@@ -1,0 +1,22 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# Create genomic variant annotation files.
+#
+# Author: Oren E. Livne
+# Date:   09-DEC-2013
+#--------------------------------------------------------------------
+# Constants
+variant_types="all snp ins del sub"
+
+# Input parameters
+out_dir="$1" #"$OBER_OUT/impute_cgi/count"
+start_chr="$2"
+stop_chr="$3"
+
+# Prepare variant annotation files for all imputed variants. Prepare files with all CGI variants and with
+# the final list of imputed variants, using the criterion (call rate >= 0.98).
+cd ${out_dir}
+cat `( for c in \`seq ${start_chr} ${stop_chr}\`; do echo chr$c/count.txt; done ) | paste -sd' '` > count.txt
+awk '$13 >= .98' count.txt > count-0.98.txt
+( for c in `seq ${start_chr} ${stop_chr}`; do zcat ${OBER_OUT}/impute_cgi/genotypes/genotypes.chr$c.tsv.gz | sed '1d'; done ) | awk '{ for (i=1; i<=8; i++) { printf "%s ", $i; } printf "\n"; }' > annotations.txt
+join --check-order -j 1 <(awk '{print $1}' count-0.98.txt | sort) <(sort -k 1,1 annotations.txt) > annotations-0.98.txt

@@ -1,0 +1,21 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# CGI imputation progress monitoring script.
+#
+# Author: Oren E. Livne
+# Date:   01-DEC-2012
+#--------------------------------------------------------------------
+
+dir="$OBER/code/impute/batch/cgi"
+config_file=${dir}/impute_cgi.beagle.sub
+tot=( `cat ${dir}/chrom_total | awk {'print $6'}` )
+
+for (( chrom=$1; chrom>=$2; chrom-- )); do
+    out="$OBER_OUT/impute_cgi_work/chr$chrom"
+    if [ -d $out ]; then
+        total="${tot[$chrom]}"
+    	a=`find $out -name '*.out' -exec wc -l {} \; | awk '{print $1}' | paste -sd+ | bc`
+	p=`printf "scale=2; 100.0*%d/${total}\n" $a | bc`
+    	printf "Chr %2d: %d/%d, %.2f%% completed\n" $chrom $a $total $p
+    fi
+done

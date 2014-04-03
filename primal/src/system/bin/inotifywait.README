@@ -1,0 +1,13 @@
+To install inotifywait as a Debian service (all operations must be run as root):
+* cp inotifywait /etc/init.d/
+* chmod +x inotifywait 
+* update-rc.d inotifywait defaults
+
+To run the service that monitors the directory dir-to-watch and chowns each
+new/updated file/directory to user:group, type
+* service inotifywait start <dir-to-watch> <user> <group>
+
+Stop service:
+service inotifywait stop 
+(or forcestop)
+

@@ -1,0 +1,7 @@
+Hutterite variant annotation database
+=====================================
+bin/create-annotation-db - the main program to create a MySQL database of variant annotations from flat files
+                           provided by William and Oren's imputation output
+
+web - web service that is password-protected (hard-coded for now), allows uploading a CSV file as input
+      with chromosome and locations and appends annotation columns in the downloaded output file.  

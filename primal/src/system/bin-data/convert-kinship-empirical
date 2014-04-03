@@ -1,0 +1,26 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Sort Lide Han's id kinship file by first id, then by second
+# id2. Analogous to sort-idcoef.
+# 
+# Author: Oren E. Livne
+# Date:   28-FEB-2013
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 1 ]; then
+  echo "Usage: ${PROGNAME} <empiric-kinship-file>"
+  echo ""
+  echo "Sort Lide's kinship coefficients file for faster access."
+  echo "Sort by first id, then by second id2. Extract id1,id2, lam, deltas."
+  echo "Output entries for both (id1,id2) and (id2,id1). Read from stdin."
+  exit $E_BADARGS
+fi
+
+temp=/tmp/hutt.kinship_empirical
+sed '1d' $1 | sort-kinship > $temp
+sorted-kinship-to-kinship $temp
+rm -f $temp

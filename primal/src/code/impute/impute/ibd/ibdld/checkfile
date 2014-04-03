@@ -1,0 +1,26 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# Check that a standard-format segment file makes sense.
+# 
+# Author: Oren E. Livne
+# Date:   13-FEB-2013
+#--------------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+if [ $# -ne 1 ]; then
+  echo "Usage: ${PROGNAME} <file>"
+  echo ""
+  echo "Standard-format segment file sanity check."
+  exit $E_BADARGS
+fi
+file="$1"
+if [ ! -f $file ]; then
+	echo "File $file not found"
+	exit 1
+fi
+
+n=1415
+lines=`awk '{ if (NF > 2) print $0 } ' $1 | wc -l`
+echo "Total: $( wc -l $1 | awk {'print $1'}). Should be: $(( n * (n+1) /2 )). Segment lines: $lines"

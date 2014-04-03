@@ -1,0 +1,36 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Count genotypes in an imputed CGI file of a each chromosome.
+# Sequential implemenation.
+#-----------------------------------------------------------------
+
+# Environment variables passed in
+echo "Using target=$target, selected_ids=$selected_ids"
+start_chr="1"
+stop_chr="22"
+
+opts=""
+if [ "x${selected_ids}" != "x" ]]; then
+    opts="${opts} -i ${selected_ids}"
+fi
+if [ "x${variant_type}" != "x" ]]; then
+    opts="${opts} -t ${variant_type}"
+fi
+if [ "x${phasing_rate}" != "x" ]]; then
+    opts="${opts} -p ${phasing_rates}"
+fi
+
+for (( chrom=$start_chr; chrom<=$stop_chr; chrom++ )); do
+    echo $chrom $target "${opts}"
+    $OBER/code/impute/batch/cgi/count_cgi_genotypes.sh $chrom $target "${opts}"
+done
+
+# Create a master count file
+cd $OBER_OUT/impute_cgi/final
+rm -f $target
+touch $target
+for (( chrom=$start_chr; chrom<=$stop_chr; chrom++ )); do
+    cat $target.chr$chrom.txt >> $target
+    rm -f $target.chr$chrom.txt 
+done
+wait

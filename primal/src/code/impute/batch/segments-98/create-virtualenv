@@ -1,0 +1,242 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Python environment provisioning.
+# Create the virtualenv "ober" on Beagle.
+# Install python packages -- latest versions that we need for our
+# code.
+# 
+# Author: Oren E. Livne
+# Date:   30-JAN-2013
+#----------------------------------------------------------------
+
+#=======================================
+# Constants, default values
+#=======================================
+
+# PIP python packages to install
+PYTHON_PACKAGES=( "nose" "PIL" "networkx" "numpy" "scipy" "matplotlib" "blist" "sqlalchemy")
+# optional: "MySQL-python"
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Read input arguments
+    verbose=false
+    while getopts "hv" optionName; do
+	case "$optionName" in
+	    v) verbose=true;;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+        esac
+    done
+
+    # Get mandatory arguments
+    shift $(( ${OPTIND} -1 ))
+    if [[ $# -ne 2 ]]; then
+	echo "Target directory, virtual environment must be specified."
+	print_type_for_help
+    fi
+#    DIR="$1/python-`uname`-`uname -m`"
+    TARGET_DIR="$1"
+    DIR="${TARGET_DIR}" #/virtualenvs"
+    VIRTUALENV="$2"
+
+    if $verbose ; then
+        # 3 points to stdout
+	exec 3>&1
+    else
+        # 3 points to a file
+	exec 3>/dev/null
+    fi
+    # Argument validation
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} [flags] <target-dir> <virtual-env>"
+    echo -e ""
+    echo -e "Provision python and dependencies under <TARGET-DIR> and in a virtual environment"
+    echo -e "called <virtual-env>."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-v\t\t\tVerbose mode."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#=======================================
+# Printouts
+#=======================================
+function write_item
+{
+    printf "%-35s " "$@"
+}
+
+function write_ok
+{
+    printf "[  OK  ]\n"
+}
+
+function write_fail
+{
+    printf "[ FAIL ]\n"
+}
+
+function write_retval
+{
+    if [ $1 -eq 0 ]; then
+	write_ok
+    else
+	write_fail
+	exit 1
+    fi
+}
+
+function write_assert_equal
+{
+    if [[ x"$1" != x"$2" ]]; then
+	write_fail
+	exit 1
+    else
+	write_ok
+    fi
+}
+
+function write_assert_not_equal
+{
+    if [[ x"$1" == x"$2" ]]; then
+	write_fail
+	exit 1
+    else
+	write_ok
+    fi
+}
+
+#=======================================
+# Python Installation 
+#=======================================
+function python_test
+{
+   # Test that python and zlib work
+    write_item "* Python zlib test ..."
+    foo="foo"
+    output=`python -c "import zlib;x = zlib.compress('${foo}');print zlib.decompress(x)"`
+    write_assert_equal "$foo" "$output"
+}
+
+function install_package
+{
+    write_item "Instaling pip package $1"
+    pip install $1 --upgrade 2>&3 >&3
+    write_retval "$?"
+}
+
+function package_test
+{
+    if [[ $1 == "PIL" ]]; then
+	import="Image"
+	version="Image.VERSION"
+    else
+	import="$1"
+	version="$1.__version__"
+    fi
+    version=`python -c "import ${import}; print \"%s\" % (${version},)" 2>&1`
+    if [[ -n `echo $version | grep Error` ]]; then
+	echo "Error"
+    else
+	echo "${version}"
+    fi
+}
+
+#=======================================
+# Misc Functions
+#=======================================
+function create_activate_script
+{
+    echo -e "#!/bin/bash\n" \
+	"export PATH=\"${PYTHON_HOME}/bin:${OPT}/plink:$PATH\"\n" \
+	"export LD_LIBRARY_PATH=\"${LIB}:$LD_LIBRARY_PATH\"\n" \
+	". ${DIR}/${VIRTUALENV}/bin/activate\n" \
+	"export OBER=\"${TARGET_DIR}/ober\"\n" \
+	"export APPS=\"${DIR}/${VIRTUALENV}/opt\"\n" > "$1"
+    chmod +x "$1"
+}
+
+#=======================================
+# Main Program
+#=======================================
+
+# Set up environment
+. ~/.bashrc
+read_input_args "$@"
+
+# Load appropriate compilers, python
+. /opt/modules/default/init/bash
+module load python/2.7.3-vanilla
+module list 1>&3 2>&3
+#exit -1
+
+# For numpy, scipy compilation
+export BLAS="/soft/python/2.7/2.7.3-vanilla/virtualenvs/src/BLAS/libfblas.a"
+export LAPACK="/soft/python/2.7/2.7.3-vanilla/virtualenvs/src/lapack-3.4.2/liblapack.a"
+
+mkdir -p ${DIR}
+cd ${DIR}
+echo "Provisioning in `pwd`"
+
+# Install python
+python_test
+printf "%-35s [ %-10s installed ]\n" "Python" `( python --version 2>&1 ) | cut -d ' ' -f 2`
+
+# Install virtual environment
+if [[ ! -f "${DIR}/virtualenv.py" ]]; then
+    echo "Downloading virtualenv ..."
+    cd ${DIR}
+    wget https://raw.github.com/pypa/virtualenv/master/virtualenv.py --no-check-certificate 2>&3 >&3
+fi
+if [[ ! -f "${DIR}/${VIRTUALENV}/bin/activate" ]]; then
+    echo "Creating virtual environment ${VIRTUALENV}..."
+    python ${DIR}/virtualenv.py ${VIRTUALENV} 2>&3 >&3
+fi
+. ${VIRTUALENV}/bin/activate
+
+# Install python packages
+num_retrys=1
+for i in "${PYTHON_PACKAGES[@]}"; do
+    version=$(package_test "$i")
+    if [[ x$version != x"Error" ]]; then
+       # Package already installed
+	printf "%-35s [ %-10s installed ]\n" $i ${version}
+       continue
+    fi
+    install_package "$i"
+    version=$(package_test "$i")
+    try=0
+    while [[ ( x$version == x"Error" ) && ( $try < $retrys ) ]]; do
+	try=$(( try + 1 ))
+	write_fail
+	printf "Problem installing $i, retrying #$try\n"
+	write_item "Uninstalling $1 ..."
+	pip uninstall < yes 2>&3 >&3
+	write_retval "$?"
+
+	# TODO: add proper numpy, lapack flags like Lorenzo did in his environment	
+	install_package "$i"
+	version=$(package_test "$i")
+    done
+    write_assert_not_equal "$version" "Error" 
+    printf "$i version: $version\n"
+done

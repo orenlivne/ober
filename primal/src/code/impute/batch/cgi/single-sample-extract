@@ -1,0 +1,78 @@
+#!/bin/bash
+#---------------------------------------------------------------
+# Manually extract imputed data for one person for Rebecca.
+# rs numbers/locations are read from stdin.
+#---------------------------------------------------------------
+
+# Convert a numerical relative genotype from "00" or "1N" to reference and minor allele format,
+# e.g., "A/G" or "./G".
+function translate_genotype
+{
+    numeric_genotype="$1"
+    ref_allele_letter="$2"
+    minor_allele_letter="$3"
+    letter_genotype=""
+    for a in `seq 0 1`; do
+	allele="${genotype:a:1}"
+	if [ "$allele" == "N" ]; then
+	    letter="."
+	elif [ "$allele" == "0" ]; then
+	    letter=${ref_allele_letter}
+        else
+	    letter=${minor_allele_letter}
+	fi
+	letter_genotype="${letter_genotype}${letter}"
+    done
+    echo "${letter_genotype:0:1}/${letter_genotype:1:1}"
+}
+
+# Process a genotype line - prints desired genotype output for a list of requested location.
+function print_genotypes
+{
+    while read line; do
+	metadata=`echo "${line}" | cut -f ${metadata_cols}`
+	ref_allele_letter=`echo "${line}" | cut -f ${ref_allele_col}`
+	minor_allele_letter=`echo "${line}" | cut -f ${minor_allele_col}`
+	numeric_genotype=`echo "${line}" | cut -f ${genotype_col}`
+	letter_genotype=$(translate_genotype ${numeric_genotype} ${ref_allele_letter} ${minor_allele_letter})
+	echo -e "${metadata} ${letter_genotype}" | tr ' ' '\t'
+    done
+}
+
+index="$1"            # Sample index. Look up in pedgiree.node_of() if FINDID is given.
+
+rs_regex="(rs.*)"
+location_regex="chr([0-9]+):([0-9]+)(.*)"
+cols="1-8,$(( 9 + $index ))" # Column indices in the genotype file
+# Column indices in the extracted list
+metadata_cols="1-8"
+ref_allele_col="6"
+minor_allele_col="7"
+genotype_col="9"
+
+while read location; do
+    [[ $location =~ $location_regex ]]
+    chrom="${BASH_REMATCH[1]}"
+    if [ -n "${chrom}" ]; then
+	# Base-pair location specified
+	bp="${BASH_REMATCH[2]}"
+	bp_stop="${BASH_REMATCH[3]}"
+	if [ -n "${bp_stop}" ]; then
+	    bp="${bp}${bp_stop}"
+	else
+	    bp="${bp}-$(( ${bp} + 1 ))"
+	fi
+    else
+       	[[ $location =~ $rs_regex ]]
+	rs="${BASH_REMATCH[1]}"
+	if [ -n ${rs} ]; then
+	    echo "$rs"
+	    # Translate to location
+	else
+	    echo "Unknown location type ${location_type}"
+	    exit -1
+	fi
+    fi
+    # Fast access using tabix indexing
+    echo tabix imputed_cgi.chr${chrom}.tsv.gz chr${chrom}:${bp} | cut -f ${cols} | print_genotypes
+done

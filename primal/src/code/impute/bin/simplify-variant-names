@@ -1,0 +1,9 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Simplify RS numbers in extracted imputed genotype files.
+# 
+# Author: Oren E. Livne
+# Date:   17-MAY-2013
+#----------------------------------------------------------------
+
+sed 's/dbsnp\.[0-9]\+://g'

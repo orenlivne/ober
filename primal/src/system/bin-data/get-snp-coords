@@ -1,0 +1,15 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Read SNP coordinates from a comma-delimited file. This is the
+# format provided by Katie Igartua for the rare Hutterite
+# variants that Carole Ober asked for her grant proposal by
+# 15-DEC-12. Reads from standard input. Outputs columns 1-3 in
+# the file: chromosome, start bp, end bp.
+# 
+# Author: Oren E. Livne
+# Date:   28-NOV-2012
+#----------------------------------------------------------------
+
+# Output columns 1-3: chromosome, start bp, end bp of each record
+
+( sed '1d' | cut -d, --output-delimiter=' ' -f 1-3 | sed 's/^chr//g') < /dev/stdin 

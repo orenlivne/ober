@@ -1,0 +1,17 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Create QC data subsets from master imputation bed file.
+#-----------------------------------------------------------------
+#PBS -l walltime=04:00:00
+#PBS -N create_qc_datasets 
+#PBS -q batch
+#PBS -j oe
+
+PLINK="plink --noweb --nonfounders"
+
+cd /group/ober-resources/users/olivne/imputed-annotations
+
+for c in `seq 1 22`; do
+    ${PLINK} --bfile qc --out qc.chr$c --make-bed --chr $c &
+done
+wait

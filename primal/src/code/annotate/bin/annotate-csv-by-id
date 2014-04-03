@@ -1,0 +1,22 @@
+#!/bin/bash
+#------------------------------------------------------------------------
+# Annotate a SNP Excel CSV file where column number $1 is the cgi var ID.
+# print to stdout the same format with extra annotation columns.
+#
+# Assumes a unique annotation for every base pair. If there are multiple
+# one, an arbitrary one of them will be returned.
+#------------------------------------------------------------------------
+tmp=`mktemp`
+while read line; do echo ${line}; done > ${tmp}
+paste -d, ${tmp} <( echo "\"xref\",\"vartype\",\"num_imputed\",\"maf_imputed\",\"var_region\",\"var_func\",\"var_mutation\",\"var_polyphen_score\",\"var_polyphen_pred\""
+while read line; do
+    echo $line | awk -F, '{ printf "mysql -u hutt -phutt hutt -e \"select vartype, xref, round(1317*imputed_call_rate), maf_imputed, var_region, var_func, var_mutation, var_polyphen_score, var_polyphen_pred from hutt where cgi_variant_id=%s\"\n", $1;}' > query
+    . query | sed '1d' > file
+    if [[ ! ( -s file ) ]]; then
+	echo -e "\t\t\t\t\t\t\t\t\t" > file
+    fi
+#    cat file # Output all annotations returned by the db
+    head -1 file # Output first entry returned by the db
+    rm -f file query
+done < <(sed '1d' ${tmp} | cut -d, -f $1) | sed 's/\t/\",\"/g' | awk '{printf "\"%s\"\n", $0}')
+rm -rf ${tmp}

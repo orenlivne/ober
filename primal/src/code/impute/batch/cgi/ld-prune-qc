@@ -1,0 +1,75 @@
+#!/bin/bash
+# LD-prune imputed data (variants that passed QC). For Minal.
+
+#-----------------
+# Input parameters
+#-----------------
+# Local imputed data output directory
+in_file="$1"   # Full path to input PLINK data set
+out_file="$2"  # Full path to output (pruned) PLINK data set
+start_chr="$3" # First chromosome (process start_chr..stop_chr)
+stop_chr="$4"  # Last chromosome (process start_chr..stop_chr)
+num_jobs="$5"  # #jobs to run in parallel
+
+function do_chrom
+{
+    # Input PLINK file name
+    local in_file="$1"
+    # working directory with intermediate files
+    local work="$2"
+    # Chromosome number
+    local c="$3"
+
+    PLINK="plink --noweb --nonfounders"
+    call_rate="0.95" # Call rate cutoff
+    maf="0.05" # MAF cutoff
+    ld_window_kb="100"
+    ld_window="50"
+    r2_threshold="0.99"
+    missing_rate=`echo "1 - ${call_rate}" | bc`
+    
+    echo "Chromosome $c"
+    # Filter SNPs to MAF >= 5%
+    if [ ! -f ${work}/qc.chr$c.bim ]; then
+	echo "Filtering on call rate and MAF"
+	${PLINK} --bfile ${in_file} --out ${work}/qc.chr$c --make-bed --chr $c --maf ${maf} >& /dev/null
+    fi
+    bash -x ld-prune ${work}/qc.chr$c ${ld_window_kb} ${ld_window} ${r2_threshold} ${call_rate}
+}
+
+#---------------------
+# Main program
+#---------------------
+PLINK="plink --noweb --nonfounders"
+# Directory and file names
+out=`dirname ${out_file}`
+work="${out}/work"
+out_file_ld="${out}/qc.pruned.ld"
+mkdir -p ${out} ${work}
+
+export -f do_chrom
+if [ ${num_jobs} -eq 1 ]; then
+    # Serial run
+    for chrom in `seq ${start_chr} ${stop_chr}`; do
+	do_chrom ${in_file} ${work} ${chrom}
+    done
+else
+    # Parallel run
+    seq ${start_chr} ${stop_chr} | parallel -j ${num_jobs} do_chrom ${in_file} ${work}
+#    for chrom in `seq ${start_chr} ${stop_chr}`; do
+#	do_chrom ${in_file} ${work} ${chrom} &
+#    done
+#    wait
+fi
+
+# Merge into a single data set
+if [ ${start_chr} -lt ${end_chr} ]; then
+    cd ${work}
+    rm -f merge-list
+    head -1 qc.chr1.final.ld > ${out_file_ld}
+    for c in `seq 2 22`; do
+	echo "qc.chr$c.final.bed qc.chr$c.final.bim qc.chr$c.final.fam" >> merge-list
+	sed '1d' qc.chr$c.final.ld >> ${out_file_ld}
+    done
+    ${PLINK} --bfile qc.chr1.final --merge-list merge-list --make-bed --out ${out_file}
+fi

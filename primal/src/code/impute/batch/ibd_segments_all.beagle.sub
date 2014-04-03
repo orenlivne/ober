@@ -1,0 +1,63 @@
+#----------------------------------------------------------
+# PBS submission configuration
+# 1415x1415 IBD segments (only upper half of matrix)
+# Multiprocessing implementation (better than threading)  
+#----------------------------------------------------------
+# Separate field values by commas.
+# Reserved variables:
+# * _mem - node RAMDISK location
+# * _node - node number
+# * _param - textual representation of parameter configuration in the parameterized run
+
+[DEFAULT]
+# Start all parameter names in this section with underscores
+_home=/lustre/beagle/ober/users/oren
+_ober=%(_home)s/ober
+# Name of the entire job
+_job=ibd_segments_all
+# Node RAMDISK location or fast scratch space
+_mem=/dev/shm
+#_mem=/lustre/beagle/ober/users/oren/out/impute_cgi_work/chr22/ibd_segments_all/node-0000/cache
+# Processes (= aprun -d flag value and #processes in multiprocessing pool)
+_processes=24
+# Number of nodes to use (parameter)
+_nodes=%(_nodes)s
+# Wall time  (parameter)
+_walltime=%(_walltime)s
+
+[pbs]
+# Name of the entire job
+job_name=%(_job)s
+# Output directory
+out_dir=out
+# Queue to submit to
+queue=batch
+# Job time (00:30:00 means 30 minutes. Queues may have restrictions.)
+walltime=%(_walltime)s
+# Beagle project ID to charge jobs to
+project=CI-MCB000155
+# How many nodes to use
+nodes=%(_nodes)s
+# How many cores to use in each node (1..24) 
+instances_per_node=1
+# Processes (= aprun -d flag value)
+processes=%(_processes)s
+
+[env]
+# Name of desired Python environment modules to be loaded 
+modules=python/2.7.3-vanilla
+code=%(_ober)s/code
+_python_path=%(code)s/db-gene:%(code)s/lethal:%(code)s/famplot:%(code)s/network:%(code)s/impute:%(code)s/util
+
+[param]
+selected=0:1415
+sample=0:1415
+_predicate=<=
+
+[exec]
+data=%(_home)s/out/phasing
+# Placeholders that can be used in the rest of this section
+#executable = python %(_ober)s/code/impute/bin/ibd_segments.py %(_mem)s/hutt.phased.npz %(_mem)s/hutt.kinship 1>%(_out)s/%(_job)s/node-%(_node)s/segments-%(_param)s.out
+executable = python %(_ober)s/code/impute/batch/ibd_segments_threaded.py -p %(_processes)s %(_mem)s/hutt.phased.npz %(_mem)s/hutt.kinship 1>%(_out)s/%(_job)s/node-%(_node)s/segments-%(_param)s.out
+transfer_input_files = %(data)s/%(_chrom)s/hutt.phased.npz, %(data)s/hutt.kinship
+transfer_output_files =

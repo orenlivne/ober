@@ -1,0 +1,50 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Count genotypes in an imputed CGI file of a each chromosome.
+#-----------------------------------------------------------------
+#PBS -l walltime=01:00:00
+#PBS -l mppwidth=528
+#PBS -N count_genotypes
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+# Environment variables passed in
+#selected_ids="lung.id"
+#target="count-lung.txt"
+start_chr="1"
+stop_chr="22"
+
+opts=""
+if [ "x${selected_ids}" != "x" ]]; then
+    opts="${opts} -i ${selected_ids}"
+fi
+if [ "x${variant_type}" != "x" ]]; then
+    opts="${opts} -t ${variant_type}"
+fi
+if [ "x${phasing_rate}" != "x" ]]; then
+    opts="${opts} -p ${phasing_rates}"
+fi
+
+echo "Using target=${target}, opts=${opts}"
+for (( chrom=$start_chr; chrom<=$stop_chr; chrom++ )); do
+    aprun -n 1 -N 1 -d 1 $OBER/code/impute/batch/cgi/count_cgi_genotypes.sh ${chrom} ${target} "${opts}" &
+done
+wait
+
+# Create a master count file
+cd $OBER_OUT/impute_cgi/final
+rm -f ${target}
+touch ${target}
+for (( chrom=$start_chr; chrom<=$stop_chr; chrom++ )); do
+    cat ${target}.chr${chrom}.txt >> ${target}
+    rm -f ${target}.chr${chrom}.txt 
+done
+wait

@@ -1,0 +1,157 @@
+#!/bin/bash
+##**************************************************************
+## A general-purpose condor set up script. Supports all three
+## machine types: manager,submit,execute.
+## 
+## Oren Livne
+## 09-SEP-2011
+##**************************************************************
+
+#==============================================================
+# Check if a value exists in an array
+# @param $1 mixed  Needle  
+# @param $2 array  Haystack
+# @return  Success (1) if value exists, Failure (0) otherwise
+# Usage: in_array "$needle" "${haystack[@]}"
+# See: http://fvue.nl/wiki/Bash:_Check_if_array_element_exists
+#==============================================================
+in_array()
+{
+    local hay needle=$1
+    shift
+    for hay; do
+        [[ $hay == $needle ]] && return 1
+    done
+    return 0
+}
+
+#=============================================
+# Print usage
+#=============================================
+function printTypeForHelp
+{
+    echo "Type \"`basename $0` -h\" for help."
+}
+
+function printUsage
+{
+    echo ""
+    echo "Usage: `basename $0` [-m manager_ip_address] [-c conf_dir] [-s spool_dir] type1 type2..."
+    echo ""
+    echo "Sets up condor on this machine."
+    echo -e "\t-m manager_ip_address - IP address of the machine that"
+    echo -e "\t\tserves as the central manager of the condor pool."
+    echo -e "\t\tRequired only if this is not the manager machine."
+    echo -e "\ttype1 type2 ... - specify the role of this machine"
+    echo -e "\t\tin the pool. A machine may have multiple types."
+    echo -e "\t\tSupported types:"
+    echo -e "\t   manager - central job pool manager"
+    echo -e "\t   submit  - jobs are to be submitted from this machine"
+    echo -e "\t   execute - jobs are to be executed on this job"
+    echo -e "\t-c conf_dir - directory containing condor config templates"
+    echo -e "\t-s spool_dir - Condor job spool directory"
+}
+
+#=============================================
+# Main program
+#=============================================
+
+# Default arguments and constants
+manager_ip_address=""
+my_ipaddress=`uname -n | sed -e 's/vm-//g' | sed -e 's/-/\./g'`
+# Useful constants
+CONDOR_CONF="~condor/scheduler/condor/conf" # Contains condor configuration templates
+CONDOR_LOCAL="/scratch/condor"              # Condor machine-local configuration directory
+
+while getopts "hm:c:s:" optionName; do
+    case "$optionName" in
+	m) manager_ip_address="$OPTARG";;
+	c) CONDOR_CONF="$OPTARG";;
+	s) CONDOR_LOCAL="$OPTARG";;
+	h) printUsage; exit 0;;
+	[?]) printTypeForHelp; exit -1;;
+    esac
+done
+shift $(($OPTIND - 1))
+set -- "$*" 
+IFS=" "; declare -a types=($*) 
+
+# Argument validation
+if [ ${#types[*]} -lt 1 ]; then
+    echo "Must specify at least one machine type"
+    printTypeForHelp
+    exit -1
+fi
+
+in_array "manager" "${types[@]}"
+manager_found="$?"
+if [[ $manager_found -eq 1 ]]; then
+    if [[ "x$manager_ip_address" != "x" ]]; then
+	echo "If a manager type is specified, the manager IP address cannot be."
+	printTypeForHelp
+	exit -1
+    else
+	manager_ip_address="$my_ipaddress"
+    fi
+else
+    if [[ "x$manager_ip_address" == "x" ]]; then
+	echo "If a manager type is not specified, the manager IP address must be."
+	printTypeForHelp
+	exit -1
+    fi
+fi
+
+# Prepare comma-delimited condor daemon list
+daemon_list=""
+shift
+for type in "${types[@]}"
+do
+    case "$type" in	
+	"manager")
+	    manager=1
+	    daemon_list="$daemon_list,COLLECTOR,MASTER,NEGOTIATOR"
+	    ;;
+	"submit")
+	    submit=1
+	    daemon_list="$daemon_list,SCHEDD"
+	    ;;
+	"execute")
+	    execute=1
+	    daemon_list="$daemon_list,MASTER,STARTD"
+	    ;;
+	*)
+	    echo "Unrecognized machine type '$type'"
+	    exit -1
+	    ;;
+   esac
+done
+daemon_list=`echo "$daemon_list" | sed -e 's/,//' | sed -e 's/,/ '/g | uniq | sed -e 's/ /,/g'`
+
+#=============================================
+# Generate condor config files from templates
+#=============================================
+
+#CONDOR_HOME="/root/condor"
+#CONDOR_CONFIG="$CONDOR_HOME/etc/condor_config"
+sed_replace_manager_ip_address='s/%CONDOR_HOST%/'$manager_ip_address'/g'
+sed_replace_my_ipaddress='s/%MY_IPADDRESS%/'$my_ipaddress'/g'
+sed_replace_daemon_list='s/%DAEMON_LIST%/'$daemon_list'/g'
+
+# Generate local machine condor configuration
+echo "Generating $CONDOR_LOCAL/condor_config.local"
+if [[ $execute ]]; then
+    template="condor_config.local.template.execute"
+else
+    template="condor_config.local.template"
+fi
+cat $CONDOR_CONF/$template \
+| sed -e "$sed_replace_manager_ip_address" \
+| sed -e "$sed_replace_my_ipaddress" \
+| sed -e "$sed_replace_daemon_list" \
+> $CONDOR_LOCAL/condor_config.local
+
+# General global pool condor configuration
+echo "Generating $CONDOR_CONFIG"
+cat $CONDOR_CONF/condor_config.template \
+    | sed -e "$sed_replace_manager_ip_address" \
+    > $CONDOR_CONFIG

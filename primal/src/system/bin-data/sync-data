@@ -1,0 +1,22 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Copy local data directory to a remote location ([$HOST:]$OBERLABDIR)
+# using rsync.
+# 
+# Author: Oren E. Livne
+# Date: 28-NOV-2012
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 1 ]; then
+  echo "Usage: ${PROGNAME} <[\$HOST:]\$OBERLABDIR)>"
+  echo ""
+  echo "Copy local data directory to a remote location ([$HOST:]$OBERLABDIR) using rsync."
+  exit $E_BADARGS
+fi
+
+TARGET_OBER_DIR="$1"
+rsync -auvhP ${OBER}/data/ ${TARGET_OBER_DIR}/data --exclude 'common/db/cache' --size-only

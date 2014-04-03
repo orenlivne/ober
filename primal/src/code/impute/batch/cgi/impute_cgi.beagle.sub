@@ -1,0 +1,57 @@
+#----------------------------------------------------------
+# PBS submission configuration: WGS 98x1415 IBD segments
+#----------------------------------------------------------
+# Separate field values by commas.
+# Reserved variables:
+# * _mem - node RAMDISK location
+# * _node - node number
+# * _param - textual representation of parameter configuration in the parameterized run
+
+[DEFAULT]
+# Start all parameter names in this section with underscores
+_home=/lustre/beagle/ober/users/oren
+_ober=%(_home)s/ober
+# Location of CGI exome files
+_genotype_file_prefix=%(_home)s/out/impute_cgi/genotypes/genotypes
+# Node RAMDISK location or fast scratch space
+_mem=/dev/shm
+_job_name=impute_cgi
+#_nodes=20
+#_instances_per_node=20
+# Number of processes to spawn
+_processes=%(_instances_per_node)s
+
+[pbs]
+# Name of the entire job
+job_name=%(_job_name)s
+# Output directory
+out_dir=out
+# Queue to submit to
+queue=batch
+# Job time (00:30:00 means 30 minutes. Queues may have restrictions.)
+walltime=%(_walltime)s
+# Beagle project ID to charge jobs to
+project=CI-MCB000155
+# How many nodes to use
+nodes=%(_nodes)s
+# How many cores to use in each node (1..24) 
+instances_per_node=%(_instances_per_node)s
+# Processes (= aprun -d flag value)
+#processes=%(instances_per_node)s
+processes=%(_processes)s
+
+[env]
+# Name of desired Python environment modules to be loaded 
+modules=python/2.7.3-vanilla
+code=%(_ober)s/code
+
+[param]
+_executable = %(_ober)s/code/impute/batch/cgi/split-cgi -i -n %(_instances_per_node)s %(_genotype_file_prefix)s.chr%(_chrom)s.tsv.gz %(_out)s %(_job_name)s %(_nodes)s
+
+[exec]
+# Location of imputation inputs: phased Problem object npz files, IBD segment files
+phasing=%(_home)s/out/phasing
+segments=%(_home)s/out/index_segments
+executable = python %(_ober)s/code/impute/bin/run_chr_impute_cgi.py -c %(_chrom)s -b 100 - %(_mem)s/%(_job_name)s.index %(_mem)s/hutt.phased.npz %(_mem)s/index_segments 1>%(_out)s/node-%(_node)s/%(_job_name)s-%(_param)s.out
+transfer_input_files = %(phasing)s/chr%(_chrom)s/hutt.phased.npz, %(segments)s/chr%(_chrom)s:index_segments/chr%(_chrom)s, %(_out)s/%(_job_name)s.index
+transfer_output_files =

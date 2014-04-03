@@ -1,0 +1,6 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Heartbeat to keep an SSH tunnel open and prevent timeout.
+#----------------------------------------------------------------
+
+while true; do sleep 10; ls; done

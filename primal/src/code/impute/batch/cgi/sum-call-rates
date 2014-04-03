@@ -1,0 +1,46 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Sum genotype counts to total counts and call rates in a file.
+# If variant_type is specified, filters variants to those with
+# that variant_type (permissible values are snp|sub|ins|del).
+#
+# File row format (counts,rates=per variant)
+# variant_id variant_type
+#            genotype_counts[9] genotype_allele_rate   genotype_full_rate
+#            phasing_counts [9] phasing_allele_rate    phasing_full_rate
+#            imputed_counts [9] imputed_allele_rate    imputed_full_rate
+#            poo_counts     [9] poo_allele_rate        poo_full_rate
+#            ld_counts      [9] ld_allele_rate         ld_full_rate
+#            ld_poo_counts  [9] ld_poo_allele_rate     ld_poo_full_rate
+#
+# Output format (countes,rates=global)
+# num_variants genotype_counts[9] genotype_allele_rate genotype_full_rate
+#              phasing_counts [9] phasing_allele_rate  phasing_full_rate
+#              imputed_counts [9] imputed_allele_rate  imputed_full_rate
+#              poo_counts     [9] poo_allele_rate      poo_full_rate
+#-----------------------------------------------------------------
+# g = group number (genotype,phasing,imputed); c = column number
+awk -v num_groups="$1" -v variant_type="$2" '\
+BEGIN { \
+    num_metadata_cols = 2; \
+    num_columns = 27; \
+    for (i = 0; i < num_columns; i++) count[i] = 0; \
+    num_variants = 0; \
+} \
+{ \
+    if ((variant_type == "") || ($2 == variant_type)) { \
+      num_variants++; \
+      i = 0; \
+      for (g = 0; g < num_groups; g++) \
+        for (c = 11*g+num_metadata_cols+1; c < 11*g+num_metadata_cols+10; c++) { count[i] += $c; i++; } \
+    } \
+} \
+END { \
+    printf "%d", num_variants; \
+    for (g = 0; g < num_groups; g++) { \
+      tot = 0; s=9*g;
+      for (i = s; i < s+9; i++) { printf " %d", count[i]; tot += count[i]; } \
+      printf " %f %f", 1.0 - (1.0*count[s])/tot, (1.0*(count[s+4]+count[s+5]+count[s+7]+count[s+8]))/tot;
+    } \
+    printf "\n";
+}'

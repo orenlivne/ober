@@ -1,0 +1,4 @@
+#!/bin/bash
+# Given a file with a single-record output with the annotations of a variant,
+# format its annotation
+paste <(head -1 $1 | tr '\t' '\n') <(head -2 $1 | tail -1 | tr '\t' '\n') | awk '{printf "%-30s %s\n", $1, $2;}'

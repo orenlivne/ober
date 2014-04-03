@@ -1,0 +1,80 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Look for variants by chromosome and bp range in CGI
+# imputed files.
+# 
+# Author: Oren E. Livne
+# Date:   08-FEB-2013
+#----------------------------------------------------------------
+
+#=======================================
+# Constants
+#=======================================
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Imputed data directory
+    input_dir="${OBER_OUT}/impute_cgi/imputed-override2"
+
+    # Read input arguments
+    while getopts "hi:" optionName; do
+	case "$optionName" in
+	    i) input_dir="$OPTARG";;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 2 ]]; then
+  	echo "Must specify chromosome and bp range."
+	print_type_for_help
+    fi
+
+    chrom="$1"
+    range="$2"
+    if [[ ! ( "$2" =~ ".*-.*") ]]; then
+	range="${range}-${range}"
+    fi
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} <chrom> <start_bp[-stop_bp]>"
+    echo -e ""
+    echo -e "Look up variant data by chromosome and bp range in the CGI imputed files."
+    echo -e "If a stop position is not specified, it is assumed to be equal to"
+    echo -e "the start position."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-i imputed-dir\t\tImputation input directory. Default: ${input_dir}."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit ${E_BADARGS}
+}
+
+#=======================================
+# Business Logic
+#=======================================
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+tabix ${input_dir}/imputed_cgi.chr${chrom}.tsv.gz chr${chrom}:${range}

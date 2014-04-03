@@ -1,0 +1,51 @@
+#----------------------------------------------------------
+# PBS submission configuration: counting genotypes
+#----------------------------------------------------------
+# Separate field values by commas.
+# Reserved variables:
+# * _mem - node RAMDISK location
+# * _node - node number
+# * _param - textual representation of parameter configuration in the parameterized run
+
+[DEFAULT]
+# Start all parameter names in this section with underscores
+_home=/lustre/beagle/ober/users/oren
+_ober=%(_home)s/ober
+# Node RAMDISK location or fast scratch space
+_mem=/dev/shm
+#_job_name=count_genotypes
+#_nodes=20
+#_instances_per_node=20
+
+[pbs]
+# Name of the entire job
+job_name=%(_job_name)s
+# Output directory
+out_dir=out
+# Queue to submit to
+queue=batch
+# Job time (00:30:00 means 30 minutes. Queues may have restrictions.)
+walltime=%(_walltime)s
+# Beagle project ID to charge jobs to
+project=CI-MCB000155
+# How many nodes to use
+nodes=%(_nodes)s
+# How many cores to use in each node (1..24) 
+instances_per_node=%(_instances_per_node)s
+# Processes (= aprun -d flag value)
+processes=%(_instances_per_node)s
+
+[env]
+# Name of desired Python environment modules to be loaded 
+modules=python/2.7.3-vanilla
+code=%(_ober)s/code
+
+[param]
+_executable = /lustre/beagle/ober/users/oren/ober/code/impute/batch/cgi/split-count-genotypes -n %(_instances_per_node)s %(_input_file)s %(_out)s %(_nodes)s %(_job_name)s
+
+[exec]
+# Location of imputation inputs: phased Problem object npz files, IBD segment files
+#executable = count-genotypes %(_count_flags)s 1>/dev/null
+executable = count-genotypes %(_count_flags)s %(_mem)s/%(_job_name)s-%(_param)s.in &> %(_mem)s/%(_job_name)s-%(_param)s.out
+transfer_input_files  = %(_out)s/node-%(_node)s/%(_job_name)s-*.in:./
+transfer_output_files = %(_job_name)s-*.out

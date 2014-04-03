@@ -1,0 +1,18 @@
+###########################################################################
+# A simple condor job that transfers input, output files
+###########################################################################
+
+universe                       = vanilla
+output                         = with-output.out
+error                          = with-output.err
+log                            = with-output.log
+should_transfer_files          = YES
+initialdir                     = .
+executable                     = with-output.sh
+arguments                      = 
+notification                   = Never
+transfer_input_files           = a.txt
+transfer_output_files          = out
+when_to_transfer_output        = ON_EXIT
+
+queue

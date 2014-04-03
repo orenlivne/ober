@@ -1,0 +1,70 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Convert Illumina raw data to plink BED+LGEN format.
+# 
+# Author: Oren E. Livne
+# Date:   02-MAY-2013
+#----------------------------------------------------------------
+
+# TODO: add PLINK flags to input arguments/parseopt
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+FAMILY_ID="HUTTERITES"
+GENOTYPE_ID="Ober-rs"
+
+if [[ ( $# -lt 5 ) || ( $# -gt 7 ) ]]; then
+  echo "Usage: ${PROGNAME} <illumina-map-file> <illumina-genotype-file> <pedigree.fam> <out-data-set-name> <append_pedigree> [gc_threshold]"
+  echo ""
+  echo "Convert Illumina raw data (such as RS&G) to plink BED format."
+  echo "Note 1: only SNPs whose IDs start with '${GENOTYPE_ID}' are output."
+  echo "Note 2: out-data-set-name must start with a directory name (./<dirs>/file-name or an absolute path)."
+  echo ""
+  echo "illumina-map-file - Illumina map file"
+  echo "illumina-genotype-file - Illumina raw genotype call file."
+  echo "pedigree.fam - PLINK FAM file incluing all genotyped IDs."
+  exit $E_BADARGS
+fi
+
+map_file="$1"
+genotype_file="$2"
+fam_file="$3"
+out=`basename "$4"`
+out_dir=`dirname "$4"`
+append_pedigree="$5"
+gc_threshold=0.0
+if [ $# -ge 6 ]; then
+    gc_threshold="$6"
+fi
+
+#tmp_dir="/tmp/${PROGNAME}.$$.tmp"
+tmp_dir="/tmp/${PROGNAME}"
+rm -rf ${tmp_dir}
+mkdir -p ${tmp_dir} ${out_dir}
+#out=`basename ${fam_file} | sed -e 's/.fam//'`
+cp ${fam_file} ${tmp_dir}/${out}.fam
+
+# Convert Illumina MAP file to PLINK MAP file. No genetic coordinates introduced.
+cat ${map_file} | grep ${GENOTYPE_ID} | sed -e 's/Ober-//' | sed -e 's/\[\([A|C|G|T]\)\/\([A|C|G|T]\)\]/\1,\2/' | awk -F, '{printf "%s %s %d %d\n", $5, $1, 0, $6}' > ${tmp_dir}/${out}.map
+
+# Convert Illumina raw genotype file to PLINK LGEN file. Using Illumina's design sequence allele calls.
+# Assuming Samplelabel in the format "<plate name>-<well number>-<sample ID>"
+sed '1d' ${genotype_file} | grep ${GENOTYPE_ID} | awk -F, -v g=${gc_threshold} '$5 >= g' | sed -e 's/Ober-//' | awk -F, "{printf \"%s %s %s %s %s\\n\", \"${FAMILY_ID}\", \$2, \$1, \$10, \$11}" | sed 's/[A-Z0-9\]*-[A-Z0-9\]*-\([A-Z0-9\]*\)/\1/g' | sed 's/\([A-Z]*\)_//g' | sed 's/- -/0 0/' > ${tmp_dir}/${out}.lgen
+echo "`wc -l ${tmp_dir}/${out}.lgen | awk '{print $1}'` genotypes."
+
+# Keep only the IDs in the genotype file; pedigree file may contain more
+cat ${tmp_dir}/${out}.lgen | awk '{print $2}' | sort -n | uniq -c | awk "{printf \"%s %s\\n\", \"${FAMILY_ID}\", \$2}" > ${tmp_dir}/${out}.ids
+
+# Append to the pedigree IDs that appear in the Illumina data but not in the pedigree. No family data.
+if $append_pedigree; then
+    comm -23 <(cut -d' ' -f 2 ${tmp_dir}/${out}.ids | sort) <(cut -d' ' -f 2 ${fam_file} | sort) | awk "{printf \"%s %s 0 0 1 -9\\n\", \"${FAMILY_ID}\", \$1}" >> ${tmp_dir}/${out}.fam
+fi
+
+# Recode to 1/2 alleles and transpose
+plink --noweb --lfile ${tmp_dir}/${out} --keep-allele-order --make-bed --out ${out_dir}/${out} --keep ${tmp_dir}/${out}.ids >& /dev/null
+#cut -d' ' -f 2 ${tmp_dir}/${out}.ids > ${out_dir}/${out}.ids
+cp ${tmp_dir}/${out}.lgen ${out_dir}
+
+# Clean up temporary files
+rm -rf ${tmp_dir}

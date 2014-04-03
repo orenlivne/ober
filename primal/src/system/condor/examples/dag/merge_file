@@ -1,0 +1,32 @@
+#!/bin/bash
+##**************************************************************
+## A simple script that merges parts into a file.
+## 
+## Oren Livne
+## 08-SEP-2011
+##**************************************************************
+
+if [ $# -ne 3 ]
+then
+    echo "Usage: `basename $0` <partFilePrefix> <numberOfParts> <outputFile>"
+    echo ""
+    echo "Merges parts into a file."
+    exit -1
+fi
+
+input=$1
+numParts=$2
+output=$3
+
+if [[ $numParts -gt 10 ]]; then
+    echo "Up to 10 parts are supported."
+    exit -1
+fi
+
+rm -f $output
+touch $output
+
+for (( i=0; i<$numParts; i++ ))
+do
+    `cat $input$i >> $output`
+done

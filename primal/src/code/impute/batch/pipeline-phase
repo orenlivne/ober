@@ -1,0 +1,441 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# The full phasing and imputation pipeline for a chromosome.
+#
+# Input: Hutteries Affymetrix plink binary data set, with genetic
+# coordinates in the bim file.
+#
+# Author: Oren E. Livne
+# Date:   06-FEB-2013
+#--------------------------------------------------------------------
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+BATCH_HOME="${OBER}/code/impute/batch"
+
+# Phasing output dir
+OUT_PHASING="${OBER_OUT}/phasing"
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Start chromosome index to process 
+    start_chr=22
+    # End chromosome index to process 
+    stop_chr=22
+    # Clean output dir first
+    do_clean=false
+    # Generate pipeline files
+    do_create=false
+    # Run pipeline
+    do_run=false
+    # Execute phasing stage
+    do_phasing=false
+    # Execute IBD segment calculation
+    do_ibd=false
+    # Execute IBD post-processing
+    do_ibd_postprocess=false
+    # Execute segment index stage
+    do_index=false
+    # Parent-of-origin analysis
+    do_poo=false
+
+    # Read input arguments
+    while getopts "hcgrpinots:e:" optionName; do
+	case "$optionName" in
+	    s) start_chr="$OPTARG";;
+	    e) stop_chr="$OPTARG";;
+	    c) do_clean=true;;
+	    g) do_create=true;;
+	    r) do_run=true;;
+	    p) do_phasing=true;;
+	    i) do_ibd=true;;
+	    t) do_ibd_postprocess=true;;
+	    n) do_index=true;;
+	    o) do_poo=true;;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 3 ]]; then
+  	echo "Work directory, architecture and input data set must be specified."
+	print_type_for_help
+    fi
+    # Job name = dir name to create temp and submission files under 
+    work_dir="$1"
+    # Architecture (CRI/Beagle Cluster)
+    arch="$2"
+    # PLINK input data set prefix  
+    INPUT_PLINK_SET="$3" #${OBER_OUT}/phasing/hutt
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} <work-dir> <architecture> <plink-data-set>"
+    echo -e ""
+    echo -e "The full phasing and imputation pipeline. Creates temp and submission files"
+    echo -e "under work-dir. Architecture can be beagle or cri. plink-data set"
+    echo -e "is the absolute path to the common prefix of the input PLINK binary files"
+    echo -e "(.bed,.bim)."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-s start-chr\tStart processing from this chromosome index. Default: ${start_chr}"
+    echo -e "\t-e stop-chr\tStop processing at this chromosome index. Default: ${stop_chr}"
+    echo -e "\t-p\t\tRun phasing stage."
+    echo -e "\t-i\t\tRun IBD segment creation."
+    echo -e "\t-t\t\tRun IBD segment post-processing."
+    echo -e "\t-n\t\tRun IBD segment indexing."
+    echo -e "\t-o\t\tRun parent-of-origin alignment."
+    echo -e "\t-c\t\tClean the output directory first."
+    echo -e "\t-g\t\tGenerate the pipeline."
+    echo -e "\t-r\t\tRun the pipeline."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#=======================================
+# PBS job file creation
+#=======================================
+
+# Create submission script for phasing + pre-processing
+# TODO: pack jobs of all chromosomes here?
+function create_job_phasing
+{
+    chrom="$1"
+    file="$2"
+    cat <<EOF > $file.sh
+#!/bin/bash
+# Fetch chromosome data from master plink data set
+split-to-chr -s ${chrom} -e ${chrom} ${INPUT_PLINK_SET} ${OUT_PHASING}
+
+# Run phasing
+python ${OBER}/code/impute/bin/run_chr_phasing.py -c ${chrom}
+EOF
+    chmod +x ${file}.sh
+
+    cat <<EOF > $file
+#!/bin/bash
+#PBS -l walltime=02:30:00
+#PBS -l mppwidth=24
+#PBS -N phasing
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd \$PBS_O_WORKDIR
+
+aprun -n 1 -N 1 -d 1 ${file}.sh
+EOF
+}
+
+# Create submission script for IBD segment post-processing.
+function create_job_ibd_postprocess
+{
+    chrom="$1"
+    out="$2"
+    file="$3"
+    cat <<EOF > $file.sh
+#!/bin/bash
+# Clean old file if exists
+rm -f ${out}/segments.out
+# Create a master segment file
+cat \`find ${out} -name *.out | paste -sd' '\` > ${out}/segments.out
+cp ${out}/segments.out ${OUT_PHASING}/chr${chrom}
+EOF
+    chmod +x ${file}.sh
+
+    cat <<EOF > $file
+#!/bin/bash
+#PBS -l walltime=00:10:00
+#PBS -l mppwidth=24
+#PBS -N ibd_postprocess
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd \$PBS_O_WORKDIR
+
+aprun -n 1 -N 1 -d 1 ${file}.sh
+EOF
+}
+
+# Create submission script for IBD segment indexing.
+function create_job_index_segments
+{
+    chrom="$1"
+    out="$2"
+    job="$3"
+    instances_per_node="$4"
+    walltime="$5"
+
+    # Segment indexing is performed separately in different chromosomal regions.
+    # Parse region size from submission file
+    sub_file="${BATCH_HOME}/index_segments/index_segments.${arch}.sub"
+    region_size=`grep region_size= ${sub_file} | cut -d= -f 2`
+    num_snps_dict="${OUT_PHASING}/num_snps.txt"
+    num_snps=`echo -e "for x in (map(int, x.rstrip('\\\\\\\n').split(' ')) for x in open('${num_snps_dict}', 'rb')):\n\tif x[0] == ${chrom}:\n\t\tprint x[1]" | python`
+    num_regions=$(( (num_snps+region_size-1) / region_size ))
+
+    # Dynamically determine # nodes so that there's about one part per instance
+    (( nodes = ( num_regions + index_segments_instances - 1 ) / index_segments_instances ))
+    echo "index segments: nodes ${nodes} instances_per_node ${instances_per_node} walltime ${walltime} regions ${num_regions} snps ${num_snps}"
+    
+    # Create submission files, passing in the num_regions parameter
+    sub_file="${BATCH_HOME}/index_segments/${job}.${arch}.sub"
+    echo "Configuration file: ${sub_file}"
+    pack_jobs.py -f 10 -t ${arch} -p chrom=chr${chrom},num_regions=${num_regions},out=${out},nodes=${nodes},instances_per_node=${instances_per_node},walltime=${walltime} ${sub_file} ${out}/${job}
+}
+
+# Create submission script for parent-of-origin phase determination
+function create_job_poo
+{
+    chrom="$1"
+    file="$2"
+    cat <<EOF > $file.sh
+#!/bin/bash
+# Run POO alignment
+npz="${OBER_OUT}/phasing/chr${chrom}/hutt.phased.npz"
+python ${OBER}/code/impute/impute/poo/run_poo.py -d 1 \${npz} \${npz}
+EOF
+    chmod +x ${file}.sh
+
+    cat <<EOF > $file
+#!/bin/bash
+#PBS -l walltime=05:00:00
+#PBS -l mppwidth=24
+#PBS -N poo
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd \$PBS_O_WORKDIR
+
+aprun -n 1 -N 1 -d 1 ${file}.sh
+EOF
+}
+
+#=======================================
+# Pipeline Construction
+#=======================================
+
+# Submit a job whose name is A that depends on a job ID B (if B="", no dependency).
+# Returns job A's ID.
+function submit_job
+{
+    job="$1" 			# Name of dependent job to be submitted
+    is_dependency_array="$2" 	# Is dependency job an array or not
+    dependency="$3" 	        # Dependency's ID
+	
+    QSUB_FLAGS=""
+    if [[ x"$dependency" != "x" ]]; then
+	if [[ ( ! $is_dependency_array ) || ( ${arch} == "beagle" ) ]]; then
+	    status="afterok"
+	else
+	    status="afterokarray"
+	fi
+	QSUB_FLAGS="${QSUB_FLAGS} -W depend=${status}:${dependency}"
+    fi
+    job_id=`qsub ${QSUB_FLAGS} ${job}/${job}.pbs`
+    echo "${job_id}" > ${job}/${job}.id
+    echo "${job_id}"
+# Testing
+#    echo "'$job' '$is_dependency_array' '$dependency'" >> ${work_dir}/chr${chrom}/log
+#    echo "qsub ${QSUB_FLAGS} ${job}/${job}.pbs" >> ${work_dir}/chr${chrom}/log
+#    echo "${job}_id"
+}
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+# Calculate number of SNPs in each chromosome in the plink input set, store dictionary as a text file.
+# This is required for indexing job.
+if $do_index; then
+    rm -f ${OUT_PHASING}/num_snps.txt
+    awk '{print $1}' ${INPUT_PLINK_SET}.bim | uniq -c | awk '{print $2, $1}' >& ${OUT_PHASING}/num_snps.txt
+fi
+
+# Loop over chromosomes and create a pipeline of PBS scripts with dependencies
+for (( chrom = start_chr; chrom <= stop_chr; chrom++ )); do
+    echo "Pipeline, chromosome ${chrom}"
+    #---------------------------------------------------
+    # Set up PBD scripts, directories
+    #---------------------------------------------------
+    out="${work_dir}/chr${chrom}"
+    echo "Output dir: ${out}"
+        
+    if $do_clean; then
+        rm -rf ${out} >& /dev/null
+    fi
+    mkdir -p ${out}
+
+    if [[ $chrom -le 3 ]]; then
+	ibd_segments_nodes="30"
+	ibd_segments_walltime="06:00:00"
+    elif [[ $chrom -le 10 ]]; then
+	ibd_segments_nodes="20"
+	ibd_segments_walltime="06:00:00"
+    elif [[ $chrom -le 11 ]]; then
+	ibd_segments_nodes="20"
+	ibd_segments_walltime="07:00:00"
+    elif [[ $chrom -le 13 ]]; then
+	ibd_segments_nodes="15"
+	ibd_segments_walltime="06:00:00"
+    else
+	ibd_segments_nodes="10"
+	ibd_segments_walltime="06:00:00"
+    fi
+
+    if [[ $chrom -le 11 ]]; then
+	index_segments_nodes="15"
+	index_segments_instances="12"
+	index_segments_walltime="10:00:00"
+    elif [[ $chrom -le 3 ]]; then
+	index_segments_nodes="20"
+	index_segments_instances="12"
+	index_segments_walltime="10:00:00"
+    elif [[ $chrom -le 11 ]]; then
+	index_segments_nodes="15"
+	index_segments_instances="18"
+	index_segments_walltime="10:00:00"
+    elif [[ $chrom -le 12 ]]; then
+	index_segments_nodes="10"
+	index_segments_instances="24"
+	index_segments_walltime="13:00:00"
+    elif [[ $chrom -le 17 ]]; then
+	index_segments_nodes="7"
+	index_segments_instances="24"
+	index_segments_walltime="08:00:00"
+    else
+	index_segments_nodes="5"
+	index_segments_instances="24"
+	index_segments_walltime="05:00:00"
+    fi
+
+    #---------------------------------------------------
+    # Create pipeline files
+    #---------------------------------------------------
+    if $do_create; then      
+	echo "Creating pipeline"
+	    
+	# Create submission script for phasing + pre-processing
+	if $do_phasing; then
+	    job="phasing"
+	    echo "Creating phasing job files"
+	    mkdir -p ${out}/${job}
+	    create_job_phasing ${chrom} ${out}/${job}/${job}.pbs
+	fi
+	
+	# Create submission scripts for IBD segment computation job
+	if $do_ibd; then
+	    job="ibd_segments_all" 
+	    echo "Creating IBD segment job files"
+	    sub_file="${BATCH_HOME}/${job}.${arch}.sub"
+	    echo "Configuration file: ${sub_file}"
+	    mkdir -p ${out}/${job}
+	    pack_jobs.py -f 10 -t ${arch} -p chrom=chr${chrom},out=${out},nodes=${ibd_segments_nodes},walltime=${ibd_segments_walltime} ${sub_file} ${out}/${job}
+	fi
+
+	if $do_ibd_postprocess; then
+	   # Create submission script for segment post-processing
+	    job="ibd_postprocess"
+	    echo "Creating IBD post-processing job files"
+	    mkdir -p ${out}/${job}
+	    create_job_ibd_postprocess ${chrom} ${out} ${out}/${job}/${job}.pbs
+	fi
+	
+	if $do_index; then
+	    job="index_segments"
+	    echo "Creating IBD segment index job files"
+	    mkdir -p ${out}/${job}
+	    create_job_index_segments ${chrom} ${out} ${job} ${index_segments_instances} ${index_segments_walltime}
+	fi
+
+	if $do_poo; then
+	    job="poo"
+	    echo "Creating POO files"
+	    mkdir -p ${out}/${job}
+	    create_job_poo ${chrom} ${out}/${job}/${job}.pbs
+	fi
+    fi
+		
+    #---------------------------------------------------
+    # Run pipeline: spawn jobs in dependency order
+    #---------------------------------------------------
+    if $do_run; then      
+	echo "Running pipeline - submitting jobs"
+	cd / # To avoid stale NFS errors in the next command
+	cd ${out}
+	
+	if $do_phasing; then
+	    phasing=$(submit_job phasing "" "")
+	fi
+	
+	if $do_ibd; then
+	    # Phasing-IBD dependency
+	    ibd_segments_all=$(submit_job ibd_segments_all false ${phasing})
+	fi
+
+	if $do_ibd_postprocess; then
+	    dependencies=""
+	    if [[ "x${ibd_segments_all}" != "${ibd_segments_all}" ]]; then
+		dependencies="-W depend=afterok:${ibd_segments_all}"
+	    fi
+	    # IBD-(IBD-post-processing) dependency
+	    ibd_postprocess=$(submit_job ibd_postprocess true ${ibd_segments_all})
+	fi
+	
+	if $do_index; then
+	    # (IBD-post-processing)-index dependency
+	    dependencies=""
+	    if [[ "x${ibd_postprocess}" != "${ibd_postprocess}" ]]; then
+		dependencies="-W depend=afterok:${ibd_postprocess}"
+	    fi
+	    segment_split=`qsub ${dependencies} -v chrom=${chrom},nodes=${index_segments_nodes},instances_per_node=${index_segments_instances},region_size=100,split_jobs=24,work=${work_dir} ${OBER_CODE}/impute/batch/index_segments/split-segments.pbs`
+
+	    index_segments=$(submit_job index_segments false ${segment_split})
+	fi
+
+	if $do_poo; then
+	    # Index-POO dependency
+	    poo=$(submit_job poo false ${index_segments})
+	fi
+    fi
+done
+
+# Now that all jobs are submitted to batch (500 max job limit), move as many short
+# jobs as possible to the development queue (faster to run them there) until we exceed
+# development's max job qupta.
+for j in `qs | grep ibd_postprocess | awk '{print $1}' ; qs | grep split_segments | awk '{print $1}'`; do
+    qmove development $j;
+done

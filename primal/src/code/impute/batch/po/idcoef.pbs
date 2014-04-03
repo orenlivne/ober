@@ -1,0 +1,20 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Calculate detailed identity coefficients from an IBD segment
+# index.
+#-----------------------------------------------------------------
+#PBS -l walltime=08:00:00
+#PBS -l mppwidth=24
+#PBS -N idcoef
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+aprun -n 1 -N 1 -d 24 ${OBER_CODE}/impute/batch/po/idcoef.sh ${OBER_OUT}/index_segments ${OBER_OUT}/po 1 22 24

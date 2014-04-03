@@ -1,0 +1,46 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# Create a master segment file from all our chromosome segment
+# files.
+# 
+# Author: Oren E. Livne
+# Date:   22-FEB-2013
+#--------------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+if [[ ( $# -lt 1 ) || ( $# -gt 3 ) ]]; then
+  echo "Usage: ${PROGNAME} <segment-dir> [chr_start=1] [chr_stop=22]"
+  echo ""
+  echo "Merge chromosome segment files into one big segment file in the standard format."
+  echo "Encode chromosomes by prepending the chromosome number to base pair positions."
+  exit ${E_BADARGS}
+fi
+dir="$1"
+if [ ! -d ${dir} ]; then
+    echo "Directory ${dir} not found"
+    exit 1
+fi
+if [[ $# -lt 2 ]]; then
+    start=1
+else
+    start=$2
+fi
+if [[ $# -lt 3 ]]; then
+    stop=22
+else
+    stop=$3
+fi 
+( for (( c=${start}; c<=${stop}; c++ )); do
+	awk -v c=`echo "1000000000 * ${c}" | bc` '{
+		if ($5 <= $7) {
+			print $1,$2,c+$3,c+$4,$5,$6,$7,$8
+		} else {
+			print $1,$2,c+$3,c+$4,$7,$8,$5,$6
+		}
+	}' ${dir}/chr$c/segments.out
+done ) | \
+    sort -k5n,5 -k7n,7 -k3n,3 | \
+    segment2ibd.py ${dir}/chr22/hutt.phased.npz | \
+    sed 's/\s*$//' | sort -k1n,1 -k2n,2

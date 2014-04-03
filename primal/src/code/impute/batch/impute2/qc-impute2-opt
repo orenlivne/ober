@@ -1,0 +1,39 @@
+# Optimize IMPUTE2 thresholds. Old code abandoned in favor of qc_impute2_threshold.py
+awk '{ \
+    if ($14 >= 0.7) { count7++; s7 += $12; c7 += $11; } \
+    if ($14 >= 0.8) { count8++; s8 += $12; c8 += $11; } \
+    if ($14 >= 0.9) { count9++; s9 += $12; c9 += $11; } \
+    if ($10 >= 30) {
+      if ($14 >= 0.7) { count7s++; s7s += $12; c7s += $11; } \
+      if ($14 >= 0.8) { count8s++; s8s += $12; c8s += $11; } \
+      if ($14 >= 0.9) { count9s++; s9s += $12; c9s += $11; } \
+    } \
+    if ($10 >= 100) {
+      if ($14 >= 0.7) { count7m++; s7m += $12; c7m += $11; } \
+      if ($14 >= 0.8) { count8m++; s8m += $12; c8m += $11; } \
+      if ($14 >= 0.9) { count9m++; s9m += $12; c9m += $11; } \
+    } \
+  } \
+  END { \
+    N = 1415;
+    h = 0;
+    maf = 100*0.5*(1 - (1 - (2.*h/N))**0.5);
+    printf "MAF >= %.2f%%\n", maf;
+    printf "%6d %.4f %.4f\n", count7, (1.0*s7)/NR, c7 /count7;  \
+    printf "%6d %.4f %.4f\n", count8, (1.0*s8)/NR, c8 /count8;  \
+    printf "%6d %.4f %.4f\n", count9, (1.0*s9)/NR, c9 /count9;  \
+    h = 30;
+    maf = 100*0.5*(1 - (1 - (2.*h/N))**0.5);
+    printf "MAF >= %.2f%%\n", maf;
+    printf "%6d %.4f %.4f\n", count7s, (1.0*s7s)/NR, c7s /count7s;  \
+    printf "%6d %.4f %.4f\n", count8s, (1.0*s8s)/NR, c8s /count8s;  \
+    printf "%6d %.4f %.4f\n", count9s, (1.0*s9s)/NR, c9s /count9s;  \
+    h = 100;
+    maf = 100*0.5*(1 - (1 - (2.*h/N))**0.5);
+    printf "MAF >= %.2f%%\n", maf;
+    printf "%6d %.4f %.4f\n", count7m, (1.0*s7m)/NR, c7m /count7m;  \
+    printf "%6d %.4f %.4f\n", count8m, (1.0*s8m)/NR, c8m /count8m;  \
+    printf "%6d %.4f %.4f\n", count9m, (1.0*s9m)/NR, c9m /count9m;  \
+  }'
+
+# /lustre/beagle/ober/users/oren/out/impute_cgi_work/impute2.stats.haps

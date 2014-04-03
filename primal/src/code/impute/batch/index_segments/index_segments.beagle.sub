@@ -1,0 +1,62 @@
+#----------------------------------------------------------
+# PBS submission configuration
+# 1415x1415 IBD segment indexing
+#----------------------------------------------------------
+# Separate field values by commas.
+# Reserved variables:
+# * _mem - node RAMDISK location
+# * _node - node number
+# * _param - textual representation of parameter configuration in the parameterized run
+
+[DEFAULT]
+# Start all parameter names in this section with underscores
+_home=/lustre/beagle/ober/users/oren
+_ober=%(_home)s/ober
+# Node RAMDISK location or fast scratch space
+_mem=/dev/shm
+# Number of SNPs per chromosomal region in index
+_region_size=100
+# Name of the entire job
+_job=index_segments
+# Number of nodes to use
+_nodes=%(_nodes)s
+# Phasing output directory
+_data=%(_home)s/out/phasing/%(_chrom)s
+# #cores to use in each node (1..24) 
+_instances_per_node=%(_instances_per_node)s
+# #processes to spawn
+_processes=1
+
+[pbs]
+# Name of the entire job
+job_name=%(_job)s
+# Queue to submit to
+queue=batch
+# Job time (00:30:00 means 30 minutes. Queues may have restrictions.)
+walltime=%(_walltime)s
+# Beagle project ID to charge jobs to
+project=CI-MCB000155
+# How many nodes to use
+nodes=%(_nodes)s
+# How many cores to use in each node (1..24) 
+instances_per_node=%(_instances_per_node)s
+# Processes (= aprun -d flag value)
+processes=24
+
+[env]
+# Name of desired Python environment modules to be loaded 
+modules=python/2.7.3-vanilla
+code=%(_ober)s/code
+_python_path=%(code)s/db-gene:%(code)s/lethal:%(code)s/famplot:%(code)s/network:%(code)s/impute:%(code)s/util
+
+[param]
+region_num=0:%(_num_regions)s
+#region_num=88
+_executable=None
+
+[exec]
+out=%(_home)s/out/index_segments/%(_chrom)s
+# Placeholders that can be used in the rest of this section
+executable = python %(_ober)s/code/impute/impute/ibd/index/index_segments_beagle.py -f -p %(_processes)s -v 1 -a amg -l 0.4 -r %(_region_size)s - %(_mem)s/hutt.phased.info.npz %(_mem)s/node-%(_node)s/%(_job)s-%(_param)s.dat %(out)s 1>%(_out)s/%(_job)s/node-%(_node)s/%(_job)s-%(_param)s.out
+transfer_input_files = %(_data)s/hutt.phased.info.npz, %(_out)s/%(_job)s/node-%(_node)s
+transfer_output_files =

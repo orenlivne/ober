@@ -1,0 +1,19 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Find IBD segments of a haplotype in a segment file.
+# 
+# Author: Oren E. Livne
+# Date:   08-FEB-2013
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 2 ]; then
+  echo "Usage: ${PROGNAME} <sample-id>"
+  echo ""
+  echo "Find IBD segments of a sample in a segment list."
+  exit $E_BADARGS
+fi
+awk -v i=$1 -v j=$2 '{ if ((($5 == i) && ($6 == j)) || (($7 == i) && ($8 == j))) { print $0; } }'

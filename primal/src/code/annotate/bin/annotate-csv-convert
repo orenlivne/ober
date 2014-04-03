@@ -1,0 +1,11 @@
+#!/bin/bash
+#------------------------------------------------------------------------
+# Annotate a SNP Excel CSV file where columns $1 and $2 are chrom, position
+# print to stdout the same format with extra annotation columns.
+#
+# Assumes a unique annotation for every base pair. If there are multiple
+# one, an arbitrary one of them will be returned.
+#
+# Convert mac to unix format.
+#------------------------------------------------------------------------
+tr '\r' '\n' | annotate-csv $1 $2

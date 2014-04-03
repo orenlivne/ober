@@ -1,0 +1,7 @@
+Universe   = vanilla
+Executable = /bin/ls
+Arguments  = /tmp
+Log        = simple.log
+Output     = simple.out
+Error      = simple.error
+Queue

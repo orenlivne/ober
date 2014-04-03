@@ -1,0 +1,21 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# Main script to compare IBDLD v3 identity coefficients with PRIMAL
+# detailed identity coefficients.
+# 
+# Author: Oren E. Livne
+# Date:   20-MAR-2014
+#--------------------------------------------------------------------
+
+# IBDLD results directory
+IBDLD="${OBER_DATA}/ibdld/v3"
+
+# Convert Delta7, kinship files to a file with n^2 x 2 numbers
+# (ALL pairs, SORTED by our sample indices: (0,0), (0,1), ..., NO HEADER)
+paste -d' ' \
+    <(sed '1d' ${IBDLD}/DomSNP1415.coeff.3671 | cut -f 1,2 | sampleid2index.py) \
+    <(sed '1d' ${IBDLD}/DomSNP1415.coeff.3671 | cut -f 3) \
+    <(sed '1d' ${IBDLD}/AddSNP1415.coeff.3671 | cut -f 3 | awk '{print 0.5*$1; }') \
+    | awk '{ print $0; if ($1 != $2) { printf "%d %d", $2, $1; \
+             for (i = 3; i <= NF; i++) printf " %s", $i; printf "\n"; } }' \
+    | sort -k1n,1 -k2n,2 | cut -d' ' -f 3- > ibdld.out

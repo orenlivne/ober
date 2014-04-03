@@ -1,0 +1,39 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# A general purpose program that loops over chromosome #s and part #s
+# within each chromosomes. Can be piped to general processors of
+# the individual parts.
+# 
+# Author: Oren E. Livne
+# Date:   30-OCT-2012
+#--------------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+if [ $# -ne 1 ]; then
+  echo "Usage: ${PROGNAME} <part-size-file> [-c start_chr -s stop_chr]"
+  echo ""
+  echo "Read a part size file (row format: chromosome #parts). Output the iterates in the double"
+  echo "loop over chromosomes and parts."
+  exit $E_BADARGS
+fi
+part_size_file="$1"
+start_chr="1"
+stop_chr="22"
+
+# Parse part count into an associative array
+declare -A part_count
+while read line; do
+	tokens=(${line// / })
+	part_count[${tokens[0]}]=${tokens[1]}
+done < "${part_size_file}"
+
+# Map phase
+for (( c = start_chr; c <= stop_chr; c++ )); do
+	num_parts=${part_count[$c]}
+	for (( p = 0; p < $num_parts; p++ )); do
+		echo "${c} ${p}"
+	done
+done
+

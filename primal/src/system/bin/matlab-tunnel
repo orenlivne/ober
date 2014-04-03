@@ -1,0 +1,23 @@
+#!/bin/bash
+#----------------------------------------------------------------------------
+# Tunnel to MATLAB UIC license server via a Comcast machine that is connected
+# to that server, typically via OpenVPN.
+# 
+# Author: Oren E. Livne
+# Date  : 16-AUG-2012
+#----------------------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+if [ $# -ne 1 ]; then
+  echo "Usage: ${PROGNAME} <comcast_ip>"
+  echo ""
+  echo "Create ssh tunnel to MATLAB UIC license server via a comcast machine"
+  echo "running an SSH server (or Cygwin SSHD if it is a Windows machine)."
+  exit $E_BADARGS
+fi
+
+#ip=24.1.195.214 # Dynamic IP, changes when Comcast machine is restarted
+ip=$1
+ssh -N $ip -L 1711:matlab.webstore.illinois.edu:1711 -L 1712:matlab.webstore.illinois.edu:1712

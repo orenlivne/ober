@@ -1,0 +1,25 @@
+       record_id int not null auto_increment,
+       cgi_variant_id int, -- CGI variant ID, unique identifier
+       chromosome int not null,     -- Chromosome number
+       bp_start bigint not null,          -- Variant begin position [bp]
+       bp_end bigint not null,           -- Variant end position [bp]
+       vartype varchar(3) not null,         -- Variant type (SNP/indel/sub)
+       xref varchar(100) not null ,           -- dbSNP137 annotation
+       is_complex boolean,     -- Is complex (SNP/sub only, if at least one call partially overlaps [begin,end]
+       is_HH boolean,          -- Are all WGS calls of high-high quality for this variant?
+       is_VQHIGH boolean,      -- Does this variant pass the VQHIGH filter of CGI's listvariants cgatools command?
+       is_ceu boolean,         -- Is this variant in 1000 genomes CEU?
+       allele_ref varchar(20),     -- Reference allele
+       allele_alt_ceu varchar(20), -- CEU alternative allele
+       allele_alt_hutt varchar(20), -- Hutterites alternative allele
+       maf_ceu float,        -- CEU minor allele frequency (MAF)
+       maf_cgi float,        -- WGS Hutterite MAF
+       maf_imputed float,     -- WGS+Imputed Hutterites MAF
+       ibd2_con int,        -- --concordant IBD2 segments containing this variant
+       ibd2_tot int,       -- total --IBD2 segments containing this variant
+       ibd2_rate float,      -- ibd2_con/ibd2_tot
+       cgi_00 int,         -- Number of 00 calls among WGS CGI samples (homozygous reference)
+       cgi_01 int,         -- Number of 01 calls among WGS CGI samples (heterozygous)
+       cgi_11 int,         -- Number of 11 calls among WGS CGI samples (homozygous alternative)
+       cgi_NN int,         -- Number of NN calls among WGS CGI samples (missing)
+       cgi_call_rate float,

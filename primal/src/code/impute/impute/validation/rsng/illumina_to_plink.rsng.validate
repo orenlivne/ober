@@ -1,0 +1,88 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Compare the PLINK RS&G SNP data with the corresponding imputed
+# genotypes.
+# 
+# Author: Oren E. Livne
+# Date:   28-MAY-2013
+#----------------------------------------------------------------
+
+#--------------------------------------------------------------
+# Find genotype differences between RS&G and imputed genotypes.
+#--------------------------------------------------------------
+function genotype_diff
+{
+    name="$1" # Input file prefix. Comparing input vs. input.imputed. Writing to name.concord
+    echo "Genotype differences, $name data set"
+
+    # Find genotype differences
+    $plink --file $name --merge $name.imputed.ped $name.imputed.map --out rsng.all --merge-mode 6 --nonfounders --keep-allele-order >& /dev/null
+
+    # Break down concordance by minor allele frequency. In progress...
+    $plink --freq --file rsng --out rsng --nonfounders >& /dev/null
+
+    # Count how many occurrences of xx/00 and 00/xx there are per each SNP. Append 0's if SNP not found
+    # in the diff file.
+    sed '1d' rsng.all.diff | awk '{ if (($4 == "0/0") || ($5 == "0/0")) { print $1; } }' | sort | uniq -c | awk '{print $1, $2}' > missing.list
+    comm -3 <(awk '{print $2}' rsng.map | sort) <(awk '{print $2}' missing.list) | awk '{print 0, $1}' >> missing.list
+
+    # Count how many discordances there are per each SNP. Append 0's if SNP not found in the diff file.
+    sed '1d' rsng.all.diff | awk '{ if (($4 != "0/0") && ($5 != "0/0")) { print $1; } }' | sort | uniq -c | awk '{print $1, $2}' > discordance.list
+    comm -3 <(awk '{print $2}' rsng.map | sort) <(awk '{print $2}' discordance.list) | awk '{print 0, $1}' >> discordance.list
+
+    join --check-order -1 1 -2 2 <(join --check-order -1 1 -2 2 <(sed '1d' rsng.frq | awk '{print $2, $5, $6}' | sort -k 1,1) <(sort -k 2,2 missing.list) | awk '{print $1, $2, $3, $4}') <(sort -k 2,2 discordance.list) | awk '{print $1, $2, $3, $4, $5}' > $name.concord
+}
+
+#--------------------------------------------------------------
+# Main program
+#--------------------------------------------------------------
+rsng_dir="$OBER_OUT/requests/rsng"
+out_dir="$rsng_dir/plink"
+affy_pedigree="$OBER_OUT/phasing/hutt.fam"
+recode_opt="recode"
+plink="plink --noweb"
+
+extract_imputed=true
+if [ $# -ge 1 ]; then
+    extract_imputed="$1"
+fi
+
+mkdir -p $out_dir
+cd $out_dir
+
+if $extract_imputed; then
+    # Extract imputed genotypes using SNP locations into PLINK TPED format
+    echo "Extract imputed genotypes"
+    awk '{printf "chr%d:%d\n", $1, $4;}' rsng.tped | run_extract_imputed.py -n -s -l letter -o tped -f full $OBER_OUT/impute_cgi/imputed-override/imputed_cgi - rsng.imputed.raw.tped
+    cp -f $affy_pedigree rsng.imputed.raw.tfam
+fi
+
+# Reconcile SNP names in both data sets (copy names from RS&G to imputed)
+paste <(cut -d' ' -f 2 rsng.tped) <(cut -d' ' -f 1,3-1000000 rsng.imputed.raw.tped) | awk '{printf "%s %s", $2, $1; for (i = 3; i <= NF; i++) printf " %s", $i; printf "\n"; }' > tmp && mv tmp rsng.imputed.raw.tped
+
+# Restrict imputed to RS&G sample set
+$plink --tfile rsng.imputed.raw --out rsng.imputed --recode --keep rsng.tfam >& /dev/null
+$plink --tfile rsng             --out rsng         --recode --nonfounders --keep-allele-order >& /dev/null
+
+# Reconcile allele coding
+echo "Reconcile allele coding"
+$plink --file rsng --merge rsng.imputed.ped rsng.imputed.map --out rsng.merged --merge-mode 2 --nonfounders --keep-allele-order >& /dev/null
+awk '{print $2}' rsng.merged.missnp > rsng.snpstoflip
+$plink --file rsng.imputed --out rsng.imputed --flip rsng.snpstoflip --recode >& /dev/null
+rm rsng.imputed.missnp >& /dev/null
+$plink --file rsng --merge rsng.imputed.ped rsng.imputed.map --out rsng.merged --merge-mode 2 --nonfounders --keep-allele-order --recode >& /dev/null
+
+# Find genotype differences in all samples
+genotype_diff rsng
+
+# Find genotype differences in CGI samples
+plink --noweb --file rsng --out rsng.common --keep common-samples.tfam --recode >& /dev/null
+plink --noweb --file rsng.imputed --out rsng.common.imputed --keep common-samples.tfam --recode >& /dev/null
+genotype_diff rsng.common
+
+# Clean temporary files
+echo "Clean up"
+#rm -f rsng.imputed.raw* *.nof *.ped *.log *.missnp *.snpstoflip rsng.imputed.map rsng.merged.map missing.list
+
+# Plots
+python $OBER_CODE/impute/impute/validation/plot_impute_concordance.py rsng.concord rsng.common.concord "RS&G" $OBER/doc/imputation/rsng > rsng.discord

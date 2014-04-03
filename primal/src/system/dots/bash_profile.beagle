@@ -1,0 +1,16 @@
+# .bash_profile
+
+# Get the aliases and functions
+if [ -f ~/.bashrc ]; then
+	. ~/.bashrc
+fi
+
+# Activate our python virtualenv
+module load python/2.7.3-vanilla
+. /soft/python/2.7/2.7.3-vanilla/virtualenvs/activate # Lorenzo's environment, works
+
+export OBER="/lustre/beagle/ober/resources/svn"
+export APPS="/lustre/beagle/ober/soft"
+. $OBER/system/dots/bash_profile
+
+alias qs="qstat -u $USER"

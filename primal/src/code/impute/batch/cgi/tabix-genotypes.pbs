@@ -1,0 +1,23 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Compress and index genotype files using tabix.
+# Input arguments:
+# name: file name pattern. Format: input_dir/file.chr#chrom#.tsv
+#       the string #chrom# is successively replaced by 1..22.
+#-----------------------------------------------------------------
+#PBS -l walltime=00:40:00
+#PBS -l mppwidth=24
+#PBS -N tabix_genotypes
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+echo $name
+aprun -n 1 -N 1 -d 24 $OBER_CODE/impute/batch/cgi/tabix-genotypes.sh "${name}"

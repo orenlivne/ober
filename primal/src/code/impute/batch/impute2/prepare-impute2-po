@@ -1,0 +1,231 @@
+#!/bin/bash
+#------------------------------------------------------------------------
+# Prepare data an IMPUTE2 parent-of-origin parallel run.
+#
+# Uses the same files prepared by prepare-impute2, but replaces the
+# study haplotype file by a file where each allele is duplicated to
+# create two dummy individuals from each individual.
+# 
+# Author: Oren E. Livne
+# Date:   20-FEB-2014
+#------------------------------------------------------------------------
+
+#=======================================
+# Constants
+#=======================================
+# Affymetrix phasing result directory
+affy_home="${OBER_OUT}/phasing"
+# Affymetrix PLINK SNP metadata file
+affy_bim="${OBER_OUT}/phasing/hutt.bim"
+# WGS CGI genotype file prefix
+cgi_genotypes_home="${OBER_OUT}/impute_cgi/genotypes/genotypes"
+# Imputed CGI genotype file prefix (genotypes are phased)
+imputed_genotypes_home="${OBER_OUT}/impute_cgi/imputed-override/imputed_cgi"
+# 0-based indices of WGS samples in imputed data files
+wgs_index="${OBER_OUT}/impute_cgi/imputed-override/hutterites.wgs.index"
+# 0-based indices of non-WGS samples in imputed data files
+imputed_index="${OBER_OUT}/impute_cgi/imputed-override/hutterites.imputed.index"
+#imputed_index="${OBER_OUT}/impute_cgi/impute2/hutterites.test.index"
+# Prefix of HapMap recombination map files
+maps="${OBER_DATA}/common/map/genetic_map_GRCh37"
+# Prefix of chunk output files
+out_prefix="run_impute2"
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Number of nodes to chunk data into
+    nodes="1"
+    # Number of instances per node
+    instances_per_node="24"
+    # Length of buffer region (in kb) to include on each side of the analysis interval
+    # specified by the IMPUTE2 -int option
+    buffer="250000"
+    # Minimum call rate of variants to be imputed
+    min_call_rate="0.95"
+    # Only these types variants are imputed (the rest are not trusted based on our CGI QC pipeline)
+    trusted_variant_types='snp|del|sub'
+    # Maximum allowed CGI-Affy discordance rate for variants to be included in study panel
+    max_discordance_rate="0.05"
+    # Output directory
+    out_dir="${OBER_OUT}/impute_cgi/impute2"
+    # Turn on options for validation vs. pedigree-based imputation. Increases run time.
+    validation=false
+    # Number of parallel processes to spawn during run
+    processes="1"
+
+    # Read input arguments
+    while getopts "hn:i:b:o:vj:" optionName; do
+	case "$optionName" in
+	    n) nodes="$OPTARG";;
+	    i) instances_per_node="$OPTARG";;
+	    b) buffer="$OPTARG";;
+	    o) out_dir="$OPTARG";;
+	    v) validation=true;;
+	    j) processes="$OPTARG";;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 1 ]]; then
+  	echo "Chromosome # should be specified."
+	print_type_for_help
+    fi
+    chrom="$1"
+
+    # Convenient aliases
+    affy_genotypes="${affy_home}/chr${chrom}/hutt.tped"
+    cgi_genotypes="${cgi_genotypes_home}.chr${chrom}.tsv.gz"
+    imputed_genotypes="${imputed_genotypes_home}.chr${chrom}.tsv.gz"
+    # Reference haplotypes (WGS 98 at CGI SNPs)
+    suffix="haps"
+    ref_name="haplotypes"
+    phased_flags="-p"
+    gen_format="imputed"
+
+    ref_panel="${out_dir}/ref.${suffix}"
+    # Allele frequencies of reference panel
+    ref_frq="${out_dir}/ref.frq.${suffix}"
+    # Our imputed haplotypes (non-WGS 1317 at CGI SNPs) for validation of impute2 results
+    imputed_haps="${out_dir}/imputed.${suffix}"
+    study_panel="${out_dir}/study.${suffix}.po"
+    # Filtered common Affy-CGI SNP file
+    snps_ok="${out_dir}/snps-ok.out"
+    # Reusable temporary file names
+    variant_filtered="${out_dir}/variants.filtered"
+    all_imputed_genotypes="${out_dir}/all.imputed.${suffix}"
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} <chrom> [flags]"
+    echo -e ""
+    echo -e "Prepare input for a parallel IMPUTE2 run."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-n nodes\t\tNumber of nodes to chunk data into. Default: ${nodes}"
+    echo -e "\t-i instances-per-node\tNumber of instances per node. Default: ${instances_per_node}"
+    echo -e "\t-b buffer\t\tLength of buffer region (in kb) to include on each side of"
+    echo -e "\t\t\t\tthe analysis. Default: ${buffer}"
+    echo -e "\t-o out-dir\t\tOutput directory. Default: ${out_dir}"
+    echo -e "\t\t\t\tinterval specified by the IMPUTE2 -int option. Default: ${buffer}"
+    echo -e "\t-j processes\t\tNumber of parallel processes to spawn during run.\n"
+    echo -e "\t\t\t\tRequires parallel to be installed. Default: ${processes}"
+    echo -e "\t-v\t\t\tTurn on options for validation vs. pedigree-based imputation. Increases run time."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit ${E_BADARGS}
+}
+
+#=======================================
+# Business Logic
+#=======================================
+# Prepare study haplotype file (1317 non-WGS at affy SNPs, phased by our phasing program),
+# flipping strand to match the CGI reference haplotypes.
+function prepare_study_haps
+{
+    python -c "import impute as im, numpy as np; h = im.io.read_npz('${affy_home}/chr${chrom}/hutt.phased.npz').haplotype; s=np.loadtxt('${out_dir}/snps-ok.flip', dtype=int); im.io_genotype.write('impute2', h, open('${study_panel}', 'wb'), samples=np.array([`paste -sd, ${imputed_index}`]), snps=s[:,0], flip_alleles=s[:,1].astype(bool))"
+}
+
+# Split a single chunk from the master input data set.
+function create_chunk
+{
+    local out_dir="$1"
+    local chrom="$2"
+    local instances_per_node="$3"
+    local suffix="$4"
+    local part_id="$5"
+
+    # Redefine variables global to this function (or pass all of them in)
+    maps="${OBER_DATA}/common/map/genetic_map_GRCh37"
+    out_prefix="run_impute2"
+    ref_panel="${out_dir}/ref.${suffix}"
+    ref_frq="${out_dir}/ref.frq.${suffix}"
+    imputed_haps="${out_dir}/imputed.${suffix}"
+    study_panel="${out_dir}/study.${suffix}.po"
+    snps_ok="${out_dir}/snps-ok.out"
+    
+    file=`printf "%s/node-%04d/%s-%04d.in" ${out_dir} $(( part_id / instances_per_node )) ${out_prefix} ${part_id}`
+
+    # [start_bp,stop_bp] = reference region to be imputed
+    # [start_study,stop_study] = study panel region (contains the reference region)
+    # [start_map,stop_map] = genetic recombination map region (contains the reference region)
+
+    # Make sure that CGI region is within the affy region (IMPUTE2 restriction).
+    # In particular, IMPUTE2 won't impute before the first affy SNP and after the last affy SNP.
+    start_bp=`head -1 ${file} | awk '{print $3}'`
+    stop_bp=`tail -1 ${file} | awk '{print $3}'`
+    start_study=`head -1 ${snps_ok} | awk '{print $3}'`
+    stop_study=`tail -1 ${snps_ok} | awk '{print $3}'`
+    if [[ ${start_bp} -lt ${start_study} ]]; then start_bp=${start_study}; fi
+    if [[ ${stop_bp}  -gt ${stop_study}  ]]; then stop_bp=${stop_study};   fi
+
+    size_in_mb=`printf "scale=2; (%d-%d)/(1000000.)\n" ${stop_bp} ${start_bp} | bc`
+
+    # Create study haplotypes
+    # Pad to get all study SNPs within the reference bp range, plus one more one either side
+    # to ensure that study region is equal to or contains reference region.
+    # (Otherwise, IMPUTE2 will not impute the edges of the reference region.)
+    start_study=`awk -v position=${start_bp} 'BEGIN { prev = -1; found = 0; } \
+	{ if ($3 > position) { if (prev < 0) print $3; else print prev; found = 1; exit; } prev = $3; } \
+	END { if (!found) print prev; }' ${snps_ok}`
+    stop_study=`awk -v position=${stop_bp} 'BEGIN { nxt = -1; found = 0; } \
+	{ if ($3 > position) { print $3; found = 1; exit; } nxt = $3; } \
+	END { if (!found) print nxt; }' ${snps_ok}`
+
+    end_col=`head -1 ${study_panel} | awk '{ print NF }'`
+
+    affy_set="${file%.*}.ref.tmp"
+    awk -v start=${start_study} -v stop=${stop_study} '($3 >= start) && ($3 <= stop)' ${snps_ok} | sort -k 3,3 > ${affy_set}
+    # Haplotype format: join on base pair column (4th in study panel)
+    join --check-order -1 4 -2 3 ${study_panel}.sorted ${affy_set} | \
+	awk -v e=${end_col} '{ printf "%s %s %s %s %s", $(e+1), $3, $1, $(e+5), $(e+6); \
+            for (i = 5; i <= e; i++) { printf " %s", $i }; printf "\n"; }' | sort -k 3,3n > ${file%.*}.study.${suffix}.po
+    printf "Chunk %4d: ref [%d,%d] study [%d,%d] %5.2f Mb (%s)\n" ${part_id} ${start_bp} ${stop_bp} ${start_study} ${stop_study} ${size_in_mb} ${file}
+    rm -f ${affy_set}
+}
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+# Find the common SNPs between CGI SNP variants with RS numbers and the affy SNPs.
+# Mark SNPs that have a flipped allele letters
+# (after flipping strands to be the same)
+echo "======================"
+echo "Chromosome ${chrom}"
+echo "======================"
+echo "Study panel: ${study_panel}"
+
+mkdir -p ${out_dir}
+
+prepare_study_haps
+sort -k 4,4 ${study_panel} > ${study_panel}.sorted
+
+if [[ ${processes} -eq 1 ]]; then
+    # Serial run
+    for part_id in `seq 0 $(( nodes * instances_per_node - 1 ))`; do
+	create_chunk ${out_dir} ${chrom} ${instances_per_node} ${suffix} ${part_id}
+    done
+else
+    # Parallel run. study panel join command broken so run only serial in that case.
+    export -f create_chunk
+    seq 0 $(( nodes * instances_per_node - 1 )) | parallel -j ${processes} create_chunk ${out_dir} ${chrom} ${instances_per_node} ${suffix}
+fi

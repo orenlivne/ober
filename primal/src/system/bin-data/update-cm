@@ -1,0 +1,58 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Add genetic positions to a BIM file of a PLINK BED data
+# set. Use HapMap files from the default location under
+# $OBER_DATA.
+# 
+# Author: Oren E. Livne
+# Date:   04-DEC-2013
+#----------------------------------------------------------------
+
+#----------------------
+# Constants
+#----------------------
+PLINK="plink --noweb --nonfounders"
+MAP_PREFIX="${OBER_DATA}/common/map/genetic_map_GRCh37_"
+
+#----------------------
+# Read input arguments
+#----------------------
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 1 ]; then
+  echo "Usage: ${PROGNAME} <in>"
+  echo ""
+  echo "Add genetic positions to a BIM file of a PLINK BED data set in."
+  echo "Write output to the plink data set out."
+  exit $E_BADARGS
+fi
+in="$1"  # Input data file prefix
+
+#----------------------
+# Main Program
+#----------------------
+
+# Split into chromosomal data sets, add coordinates to each one. Create a single coordinate file ${in}.txt.
+rm -f ${in}.txt
+for chrom in `seq 1 24`; do
+  echo "Chromosome ${chrom} ..."
+  echo "  Extracting data from plink"
+  if [ ! -f ${in}.chr${chrom}.bim ]; then
+    ${PLINK} --chr ${chrom} --bfile ${in} --out ${in}.chr${chrom} --make-bed >& /dev/null
+  fi
+  if [ `wc -l ${in}.chr${chrom}.bim | awk '{print $1}'` -ne "0" ]; then
+  	# Load HapMap chromosomal map file columns (column 1=bp; 3=cm). Interpolate cm's to in's SNP positions
+    echo "  Interpolating coordinates"
+  	python -c "import numpy as np; from scipy.interpolate import interp1d; m = np.loadtxt('${MAP_PREFIX}chr${chrom}.txt', usecols=[1,3], skiprows=1); f = interp1d(m[:,0], m[:,1], bounds_error=False, fill_value=0); bp = np.loadtxt('${in}.chr${chrom}.bim', usecols=[3]); np.savetxt('${in}.chr${chrom}.cm', f(bp), fmt='%.5f');"
+    echo "  Saving coordinates"
+  	paste ${in}.chr${chrom}.bim ${in}.chr${chrom}.cm | awk '{ printf "%s\t%f\n", $2, $7 }' >> ${in}.txt
+  fi
+done
+
+# Clean up
+rm -f ${in}.txt ${in}.chr${chrom}*
+
+# Use plink to update the coordinates in the BIM file
+echo "Updating coordinates in BIM File..."
+${PLINK} --bfile ${in} --out ${in} --update-cm --update-map ${in}.txt --make-bed

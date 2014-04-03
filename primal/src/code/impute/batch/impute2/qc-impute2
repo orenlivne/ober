@@ -1,0 +1,145 @@
+#!/bin/bash
+#------------------------------------------------------------------------
+# Run a Quality Control (QC) on the IMPUTE2 genotypes by comparing
+# them against the pedigree-based method so that we can determine the
+# optmal IMPUTE2 probability threshold (to guarantee a 1% error rate).
+#
+# Must be run after run-impute2 generated all its intermediate results.
+# 
+# Author: Oren E. Livne
+# Date:   07-FEB-2014
+#------------------------------------------------------------------------
+
+#=======================================
+# Constants
+#=======================================
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Minimum #hets in a variant to count. E.g., with 1415 samples, #hets >= 100 <==> MAF >~ 3.5%
+    min_hets="100"
+    # Threshold for IMPUTE2 probabilities to be considered as called genotypes
+    bins="100"
+    # Input phased or unphased data into IMPUTE2?
+    phased=false
+    # Read input arguments
+    while getopts "hpb:n:" optionName; do
+	case "$optionName" in
+	    n) min_hets="$OPTARG";;
+	    b) bins="$OPTARG";;
+	    p) phased=true;;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 1 ]]; then
+  	echo "Data set prefix must be specified."
+	print_type_for_help
+    fi
+
+    # Chromosome's output directory
+    n="$1" #${OBER_OUT}/impute_cgi/impute2/chr${chrom}"
+    # Node number
+    #node="$2"
+    # Part number
+    #part="$3"
+
+    if ${phased}; then
+	suffix="haps"
+    else
+	suffix="gen"
+    fi
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} <data-set-prefix>"
+    echo -e ""
+    echo -e "Run IMPUTE2 on chunk #part in node #node of chromosome chrom."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-n min-hets\tMinimum #hets in a variant to count. Default: ${min_hets}"
+    echo -e "\t\t\tExample: with 1415 samples, #hets >= 100 <==> MAF >~ 3.5%."
+    echo -e "\t-b bins\t\tNumber of bins to discretize IMPUTE2 genotype calling probabilities into. Default: ${bins}"
+    echo -e "\t-p\t\tInput phased or unphased data into IMPUTE2? Default: ${phased}"
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit ${E_BADARGS}
+}
+
+#=======================================
+# Business Logic
+#=======================================
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+# Common file prefix to this chunk
+#n="${out_home}/node-`printf \"%04d\" ${node}`/run_impute2-`printf \"%04d\" ${part}`"
+out="$n.impute2.${suffix}" # Output file name prefix
+ld_calls="${out}.truncated"
+ped_calls="$n.imputed.${suffix}"
+
+# Strip ld_calls file row headers (first 5 columns) because we are creating summary statistics
+# over all variants.
+#
+# For each het called by both pedigree and IMPUTE2:
+# - Calculate maximum IMPUTE2 probabilities (a) and the corresponding dose (dose_impute2).
+# - Fetch the pedigree call dose (dose_pedigree).
+# - Increment discordances in the bin a falls into if dose_impute2 = dose_pedigree, otherwise increment concoradnce.
+# n = # samples; p = LD genotype pointer; q = pedigree genotype pointer
+# Bin #hets, #discordances into 'bins' probability ranges.
+paste ${ld_calls} ${ped_calls} | awk -v min_hets=${min_hets} -v bins=${bins} ' \
+    BEGIN \
+    { \
+      for (k = 0; k <= bins; k++) { called[k] = 0; discordant[k] = 0; } \
+    } \
+    { \
+      n = (NF-5)/5; p = 6; q = 3*n+6; var_hets = 0; \
+      for (k = 0; k <= bins; k++) { var_called[k] = 0; var_discordant[k] = 0; } \
+      for (i = 1; i <= n; i++) \
+      { \
+        a = -1; dose_impute2 = -1; \
+        for (j = 0; j < 3; j++) { if (a < $(p+j)) { a = $(p+j); dose_impute2 = j; } } \
+        if (($q == "?") || ($(q+1) == "?")) { dose_pedigree = -1; } else { dose_pedigree = $q + $(q+1); } \
+        k = sprintf("%d", a*bins); \
+        if ((dose_impute2 >= 0) && (dose_pedigree >= 0) && ((dose_impute2 == 1) || (dose_pedigree == 1))) \
+        { \
+          var_called[k]++; var_hets++; \
+          if (dose_impute2 != dose_pedigree) var_discordant[k]++; \
+          if (dose_impute2 != dose_pedigree) status="N"; else status="Y"; \
+        } \
+        p += 3; q += 2; \
+      } \
+      if (var_hets >= min_hets) \
+      { \
+        for (k = 0; k <= bins; k++) \
+        { \
+          called[k] += var_called[k]; \
+          discordant[k] += var_discordant[k]; \
+        } \
+      } \
+    } \
+    END \
+    { \
+      for (k = 0; k <= bins; k++) printf "%d %d\n", called[k], discordant[k]; \
+    }' > $n.qc.${suffix}

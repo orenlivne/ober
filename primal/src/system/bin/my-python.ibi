@@ -1,0 +1,10 @@
+#!/bin/bash
+export HOME=/cihome3/livne
+. $HOME/.bash_profile
+. ${MY_VIRTUALENV}/bin/activate
+echo "==============================================="
+echo "`which python` $(python --version 2>&1)"
+echo "==============================================="
+#python -c "import sys; print sys.path"
+#echo "$@"
+python "$@"

@@ -1,0 +1,44 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# Convert our segment file into a standard format that can be
+# compared with IBDLD.
+# 
+# Author: Oren E. Livne
+# Date:   12-FEB-2013
+#--------------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+if [ $# -ne 1 ]; then
+  echo "Usage: ${PROGNAME} <file>"
+  echo ""
+  echo "Convert our segment file into a standard format that can be compared"
+  echo "with IBDLD."
+  exit $E_BADARGS
+fi
+file="$1"
+if [ ! -f ${file} ]; then
+    echo "File ${file} not found"
+    exit 1
+fi
+	
+# Setup temp files, constants
+segment_file="/tmp/$PROGNAME.$$.tmp.segment"
+id_file="/tmp/$PROGNAME.$$.tmp.id"
+#trap "rm $segment_file $id_file; exit" SIGHUP SIGINT SIGTERM
+problem_file="${OBER_OUT}/phasing/chr22/hutt.phased.npz"
+code="${OBER}/code/impute/impute/ibd/ibdld"
+
+# Convert to standard format
+cat ${file} | ${code}/segment2ibd.py ${problem_file} | sort -k1n,1 -k2n,2 > ${segment_file}
+
+# Create a file with the set of IDs, sorted
+cat ${segment_file} | awk {'printf "%d\n%d\n", $1, $2;'} | sort -n -u > ${id_file}
+
+# Add missing pairs
+cat ${id_file}
+cat ${segment_file} | ${code}/add_missing_pairs.py ${id_file}
+
+# Clean up
+#rm -f $segment_file $id_file

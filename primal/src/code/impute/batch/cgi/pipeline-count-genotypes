@@ -1,0 +1,27 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# Genotype counting & call rate pipeline.
+#
+# Author: Oren E. Livne
+# Date:   11-APR-2013
+#--------------------------------------------------------------------
+# Constants
+#src="${OBER_CODE}/impute/batch/cgi"
+#out="$OBER_OUT/impute_cgi"
+
+function count_genotypes_chr_range
+{
+    for chrom in `seq $1 $2`; do
+	echo "chrom=$chrom nodes=$3 walltime=$5"
+	count-genotypes-chr-parallel -c -g -r ${chrom} $3 $4 "$5"
+    done
+}
+
+# Generate variant count file, for all variants
+count_genotypes_chr_range  1 22 10 10 00:10:00
+
+# Genotype count report
+#filter_cgi_report=`qsub -W depend=afterok${filter_cgi} -vthresholds="\"${thresholds}\"" ${src}/count-filtered-genotypes.pbs`
+
+# Run merge-genotype-counts to create genomic count files. TODO: schedule a job that depends on all
+# count_genotypes_chr_range runs.

@@ -1,0 +1,27 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Output variants for the male fertility study (main driver).
+# 
+# Author: Oren E. Livne
+# Date:   24-FEB-2014
+#----------------------------------------------------------------
+build="hg18"
+
+# Additional manually-ran requests by Carole
+#variants-near -r rs7867029 -b hg18 9  80213452 80225460 variants  | annotate-csv 2 3 > variants.csv
+#variants-near -r rs7174015 -b hg19 15 50617068 50817068 variants2 | awk -F, 'NR == 1 || $5 >= 0.8' | annotate-csv 2 3 > variants2.csv
+
+function process_line
+{
+    line="$1"
+    rs=`echo ${line} | awk '{print $1}'`
+    chrom=`echo ${line} | awk '{print $2}' | sed 's/chr\(.*\)/\1/g'`
+    start_bp=`echo ${line} | awk '{print $3}'`
+    stop_bp=`echo ${line} | awk '{print $4}'`
+    out=`echo ${line} | awk '{print $5}'`
+    echo "Finding variants near ${rs} in chr${chrom}:${start_bp}-${stop_bp}, build ${build}, out file ${out}"
+    variants-near -r ${rs} -b ${build} ${chrom} ${start_bp} ${stop_bp} ${out} | annotate-csv 2 3 > ${out}.csv
+}
+
+# Read all lines except comments and blank lines
+awk '(NF == 5) && !(/^#/)' | ( while read line; do process_line "${line}"; done )

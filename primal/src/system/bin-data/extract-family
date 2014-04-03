@@ -1,0 +1,35 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Extract a sample of people from plink TPED input. Works even on
+# hap data sets with partial genotypes, which plink doesn't
+# support.
+# 
+# Author: Oren E. Livne
+# Date:   16-JUL-2012
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 2 ]; then
+  echo "Usage: ${PROGNAME} <sample_file> <tfam>"
+  echo "Extract the individuals specified in sample_file from PLINK TPED standard input."
+  exit $E_BADARGS
+fi
+samples="$1"
+tfam="$2"
+
+# This will work for standard PLINK files but fail for our hap files where one individual will have "2 1"
+# followed by another having "2 0". PLINK only wants "0 0" for missing genotypes. 
+#plink --noweb --tped hutt.3chips.clean.22.tped --tfam hutt.3chips.clean.tfam --transpose --out family --recode12 --keep family 
+
+s="";
+for i in `cat ${samples} | xargs -iddd grep -n "ddd" ${tfam} | cut -d ":" -f 1`; do
+    c=`echo "2*$i+3" | bc` 
+    s="$s$c,";
+    c=`echo "2*$i+4" | bc`
+    s="$s$c,";
+done
+cols=`echo $s | sed s'/.$//'`
+cut -d ' ' -f 1,2,3,4,$cols < /dev/stdin

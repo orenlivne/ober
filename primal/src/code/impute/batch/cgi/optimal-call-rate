@@ -1,0 +1,19 @@
+#!/bin/bash
+# Calculate expected call rate statistics (mean, stddev) using IBD clique coverage.
+
+# Output directory to look for files under
+dir="/lustre/beagle/ober/users/oren/out/impute_cgi_work"
+
+mkdir -p ${dir}/total
+
+# Save call rates to a file
+if [ ! -f ${dir}/total/index_segments_call_rate.out ]; then
+    ( for c in `seq 1 22`; do
+	    for i in `find ${dir}/chr${c}/index_segments -name 'index_segments-*.out'`; do
+		grep "call rate" $i | awk '{print $16}' | sed 's/%//g'
+	    done
+	    done ) > ${dir}/total/index_segments_call_rate.out
+fi
+
+# Calculate statistics
+awk 'BEGIN { m1=0; m2=0; } { m1 += $1; m2 += $1*$1; } END { print m1, m2; m1 = (1.0*m1)/NR; m2 = sqrt(m2/NR - m1*m1); printf "#SNPs %d mean %.3f stddev %.3f\n", NR, m1, m2; }' ${dir}/total/index_segments_call_rate.out

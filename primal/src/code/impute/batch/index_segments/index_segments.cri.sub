@@ -1,0 +1,53 @@
+#----------------------------------------------------------
+# PBS submission configuration - CRI
+# 1415x1415 IBD segment indexing
+#----------------------------------------------------------
+# Separate field values by commas.
+# Reserved variables:
+# * _mem - node RAMDISK location
+# * _node - node number
+# * _param - textual representation of parameter configuration in the parameterized run
+
+[DEFAULT]
+# Start all parameter names in this section with underscores
+_home=/home/olivne
+_ober=%(_home)s/ober
+# Node RAMDISK location or fast scratch space
+_mem=/home/olivne/scratch
+# Number of SNPs per chromosomal region in index
+_region_size=200
+# Number of processes to use in each node (multiprocessing)
+_processes=20
+# Name of the entire job
+_job=index_segments
+
+[pbs]
+# Name of the entire job
+job_name=%(_job)s
+# Queue to submit to
+queue=batch
+# Job time (00:30:00 means 30 minutes. Queues may have restrictions.)
+walltime=02:00:00
+# Beagle project ID to charge jobs to
+project=CI-MCB000155
+# How many nodes to use
+nodes=2
+# How many cores to use in each node (1..24) 
+instances_per_node=1
+# Processes (= aprun -d flag value). Dummy here
+processes=%(_processes)s
+
+[env]
+# Name of desired Python environment modules to be loaded 
+modules=python/2.7.3-vanilla
+code=%(_ober)s/code
+
+[param]
+region_num=0:%(_num_regions)s
+
+[exec]
+data=%(_ober)s/out/phasing/%(_chrom)s
+%(data)s/%(_job)s# Placeholders that can be used in the rest of this section
+executable = python %(_ober)s/code/impute/impute/ibd/index/index_segments.py -p %(_processes)s -v 1 -r %(_region_size)s - %(_mem)s/hutt.phased.info.npz %(_mem)s/segments.out %(out)s 1>%(_out)s/%(_job)s/node-%(_node)s/%(_job)s-%(_node)s.out
+transfer_input_files = %(data)s/hutt.phased.info.npz, %(data)s/segments.out
+transfer_output_files =

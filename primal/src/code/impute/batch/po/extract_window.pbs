@@ -1,0 +1,24 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Extract a +-1Mb window of imputed PO data around each of several
+# GWAS hits. Note: the output SNVs are NOT pruned for LD.
+#
+# Input parameters:
+# in_file = list of hits (CGI variant IDs)
+# out_dir = output directory
+#-----------------------------------------------------------------
+#PBS -l walltime=02:00:00
+#PBS -l mppwidth=24
+#PBS -N extract_window
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+aprun -n 1 -N 1 -d 24 bash -x ${OBER_CODE}/impute/batch/po/extract_window.sh ${in_file} ${out_dir} 24

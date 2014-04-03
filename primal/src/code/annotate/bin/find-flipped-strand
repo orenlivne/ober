@@ -1,0 +1,22 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Identify flipped strands between CEU and CGI reference allele.
+# and MAFs.
+#
+# Author: Oren E. Livne
+# Date:   03-JAN-2014
+#----------------------------------------------------------------
+
+awk -F $'\t' \
+    'BEGIN { COMP["A"] = "T"; COMP["T"] = "A"; COMP["C"] = "G"; COMP["G"] = "C"; } \
+     { \
+       var_type=$7; cgi_ref=$13; cgi_alt=$15; comp_ref=COMP[cgi_ref]; cgi_maf=$17; imputed_maf=$18; \
+       ceu_ref=$73; ceu_alt=$74; ceu_maf = $72; \
+       if ((var_type == "snp") && (cgi_ref != "NULL") && (comp_ref != cgi_alt)) \
+       { \
+         print $1, cgi_ref, cgi_alt, ceu_ref, ceu_alt, cgi_maf, imputed_maf, ceu_maf; \
+       } \
+     }' data.tmp | head -100
+
+#awk -F $'\t' 'BEGIN { COMP["A"] = "T"; COMP["T"] = "A"; COMP["C"] = 
+#"G"; COMP["G"] = "C"; } { var_type=$7; cgi_01=$23; ref=$13; alt_ceu=$14; cgi_alt=$15; comp_ref=COMP[ref]; if ((var_typ#e == "snp") && ((comp_ref != alt_ceu) && (comp_ref != cgi_alt)) && (COMP[$73] == ref) && (COMP[$74] == cgi_alt)) { pr#int $0; } }' data.tmp | head

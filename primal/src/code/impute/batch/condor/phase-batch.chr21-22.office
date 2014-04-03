@@ -1,0 +1,1 @@
+phase-batch -p $OBER/system/bin/my-python.office -f 2 -s 21 -e 22 -o $1 -g $1/imputed $OBER/code/impute/batch/phase.local.fan $OBER/data/hutt/hutt 50

@@ -1,0 +1,43 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Run impute2 genotype QC on all chromosomes.
+# Parameters:
+# * WORK_DIR - directory to process with IMPUTE2 result files
+# * num_nodes - number of nodes to use for this job
+# * -l header with mppwidth=24*(num_nodes)
+# * min-hets - minimum # hets for a variant to count
+# * num-bins - number of bins in QC historgram
+#-----------------------------------------------------------------
+#PBS -l walltime=03:00:00
+#PBS -N qc_impute2
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+#num_nodes="22" # Must match mppwidth above
+
+# Create a master IMPUTE2 statistics file
+cat `find ${WORK_DIR} -maxdepth 3 -name 'impute2.chr*.stats.haps' | paste -sd' '` | awk 'NF == 16' | tr ' ' '\t' > ${WORK_DIR}/impute2.stats.haps
+
+# Split input into sub-lists to be processed by nodes
+#WORK_DIR="${OBER_OUT}/impute_cgi_work" # Directory with intermediate results
+mkdir -p ${WORK_DIR}/qc-impute2
+cd ${WORK_DIR}/qc-impute2
+# Create input list (of chunks) to process. Use 3 digits in chunk file names
+for i in `find ${WORK_DIR} -name 'run_impute2-*.imputed.haps' | grep chr`; do n=`echo ${i} | sed 's/\.imputed\.haps$//'`; echo $n; done > input-list
+split-nb -a 3 input-list input ${num_nodes}
+
+for c in `seq 0 $(( num_nodes - 1 ))`; do
+    name=`printf "%03d" $c`
+    aprun -n 1 -N 1 -d 24 ${OBER_CODE}/impute/batch/impute2/qc-impute2.sh input${name} ${min_hets} ${num_bins} &
+done
+wait
+
+( for i in `cat input-list`; do cat $i.qc.haps; done ) | qc-impute2-reduce -b ${num_bins} > ${WORK_DIR}/qc-impute2/qc-impute2.out

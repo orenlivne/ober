@@ -1,0 +1,97 @@
+#!/bin/bash
+# LD-prune a BED file using our custom program that outputs the highest call rate SNP in every LD block.
+# Then filter SNPs to call rate >= call_rate.
+# For Minal and Gilad Lab collaboration.
+
+# Constants
+
+# A file containing variant-id, is-functional, PolyPhen-score. Sorted by first column
+ANNOTATION_FILE="${OBER_OUT}/impute_cgi/data-sets/qc-pruned/functional.list"
+
+#-----------------
+# Input parameters
+#-----------------
+f="$1" # Input file name
+
+# Directory and file names
+out=`dirname ${f}`
+cd ${out}
+
+ld_window_kb="$2"   # Size of sliding window [kbp], e.g., 100
+ld_window="$3"      # number of SNPs in sliding window, e.g., 50
+ld_window_shift="1" # number of SNPs to shift window by
+r2_threshold="$4"   # r^2 threshold (should be high, 0.99 or 1)
+call_rate="$5"      # Call rate filter (0.95 is standard for GWAS)
+
+missing_rate=`echo "1 - ${call_rate}" | bc`
+PLINK="plink --noweb --nonfounders"
+PLINK_NOPED="${PLINK} --bed $f.bed --bim $f.bim --fam $f.fam.noped"
+PLINK_LD_OPTS="--ld-window-kb $(( 2 * ld_window_kb )) --ld-window ${ld_window} --ld-window-r2 ${r2_threshold}"
+LD_PRUNE="ld_prune.py -v -w ${ld_window} -k ${ld_window_kb} -m ${ld_window_shift} -p ${r2_threshold}"
+
+if [ ! -f $f.dosage ]; then
+    printf "LD pruning: window size = %.f kbp or %d SNPs; r^2 >= %.2f\n" ${ld_window_kb} ${ld_window} ${r2_threshold}
+    echo "Removing pedigree information"
+    awk '{print $1, $2, 0, 0, $5, $6}' $f.fam > $f.fam.noped
+
+    # Convert to dosage format
+    echo "Recoding to dosages"
+    ${PLINK_NOPED} --out $f --missing --recodeA >& /dev/null
+    # Create map file: calculate call rate. Sort so that it's faster to join with the annotations file
+    paste \
+	<(sed '1d' $f.lmiss | awk '{ print $2, 1 - $5}') \
+	<(awk '{print $4}' $f.bim) \
+    | awk '{print $1, $3, $2}' | sort -k 1,1 > $f.map
+    # Add variant annotation columns
+    tmp=`mktemp`
+    join -j 1 $f.map ${ANNOTATION_FILE} > ${tmp} && mv ${tmp} $f.map
+    cut -d' ' -f 7- $f.raw | transpose.py | cut -d' ' -f 2- | sed 's/NA/-1/g' > $f.dosage
+fi
+
+#if [ ! -f $f.before.ld ]; then
+#echo "Calculate LD before"
+#${PLINK_NOPED} ${PLINK_LD_OPTS} --out $f.before >& /dev/null
+#echo "First few pairs with r^2 >= ${r2_threshold}:"
+#sed '1d' $f.before.ld | head | awk '{printf "%-20s %-20s %f\n", $3, $6, $7;}'
+#fi
+
+# Run LD pruning; generate pruned SNP annotations
+if [ ! -f $f.pruned.bim ]; then
+    echo "LD-pruning"
+    ${LD_PRUNE} $f.map $f.dosage > $f.pruned.annotation
+    awk '{print $1}' $f.pruned.annotation > $f.pruned.in
+    ${PLINK_NOPED} --out $f.pruned --extract $f.pruned.in --make-bed >& /dev/null
+fi
+
+if [ ! -f $f.after.ld ]; then
+    echo "Calculate LD after"
+    ${PLINK} ${PLINK_LD_OPTS} --bfile $f.pruned --out $f.after >& /dev/null
+    echo "First few pairs with r^2 >= ${r2_threshold}:"
+    sed '1d' $f.after.ld | head | awk '{printf "%-20s %-20s %f\n", $3, $6, $7;}'
+fi
+
+# Remove one SNP from each remaining LD pair; apply call rate filter
+if [ ! -f $f.final.bim ]; then
+    sed '1d' $f.after.ld | awk '{print $3}' | sort > $f.exclude
+    ${PLINK} --bfile $f.pruned --out $f.final --exclude $f.exclude --make-bed --geno ${missing_rate} >& /dev/null
+fi
+
+if [ ! -f $f.final.ld ]; then
+    echo "Calculate LD final"
+    ${PLINK} ${PLINK_LD_OPTS} --bfile $f.final --out $f.final >& /dev/null
+    echo "First few pairs with r^2 >= ${r2_threshold}:"
+    sed '1d' $f.final.ld | head | awk '{printf "%-20s %-20s %f\n", $3, $6, $7;}'
+fi
+
+# Annotate final variants
+join -j 1 <($f.final.bim | sort -k 2,2) <(sort -k 1,1 $f.pruned.annotation) > $f.final.annotation
+
+# Print stats
+num_before=`wc -l $f.bim | awk '{print $1}'`
+num_after=`wc -l $f.pruned.bim | awk '{print $1}'`
+num_final=`wc -l $f.final.bim | awk '{print $1}'`
+#pairs_before=`wc -l $f.before.ld | awk '{print $1-1}'`
+pairs_after=`wc -l $f.after.ld | awk '{print $1-1}'`
+pairs_final=`wc -l $f.final.ld | awk '{print $1-1}'`
+#printf "File %-20s   variants %-6d -> %-6d -> %-6d  ld-pairs %-8d -> %-8d -> %-8d\n" $f ${num_before} ${num_after} ${num_final} ${pairs_before} ${pairs_after} ${pairs_final}
+printf "File %-20s   variants %-6d -> %-6d -> %-6d  ld-pairs ?? -> %-8d -> %-8d\n" $f ${num_before} ${num_after} ${num_final} ${pairs_after} ${pairs_final}

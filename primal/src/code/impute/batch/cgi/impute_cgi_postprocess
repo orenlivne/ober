@@ -1,0 +1,42 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# CGI imputation post-processing and aggregation of results.
+#
+# Author: Oren E. Livne
+# Date:   01-DEC-2012
+#--------------------------------------------------------------------
+if [[ $# -ne 3 ]]; then
+    echo -e "Usage: `basename $0` <work-dir> <out-dir> <chrom>"
+    exit ${E_BADARGS}
+fi
+    
+work_dir="$1"
+out_dir="$2"
+chrom="$3"
+
+# Constants
+affy_plink_file="${OBER_DATA}/hutt/hutt.3chips.clean"
+work_chr="${work_dir}/chr${chrom}/impute_cgi"
+count_dir="${OBER_OUT}/impute_cgi/count"
+imputed_prefix="${out_dir}/imputed_cgi"
+in_prefix="${work_chr}/imputed_cgi"
+file="${in_prefix}.chr${chrom}.tsv"
+
+# Initialize, clean
+mkdir -p ${work_chr}
+rm -f ${in_prefix}.chr${chrom}*
+
+# Aggregate imputation results into a single chromosomal output file
+cat `find ${work_chr} -name "*.out" | sort -n | paste -sd' '` > ${file}
+
+# Tabix-compressed-and-index the output file
+bgzip -c ${file} > ${file}.gz
+tabix -s 2 -b 3 -e 4 ${file}.gz
+rm -f ${file}
+
+# Override imputed genotypes with affy. No header line (-n 0 flag)
+bash -x ${OBER_CODE}/impute/batch/cgi/override-imputed-by-plink.sh ${in_prefix} ${out_dir} ${affy_plink_file} ${chrom} ${work_chr}/temp "-n 0"
+
+# Run genotype counting
+#rm -rf ${count_dir}/chr${chrom}
+#${OBER_CODE}/impute/batch/cgi/count-genotypes-all ${chrom} ${chrom} "${imputed_prefix}" "${count_dir}"

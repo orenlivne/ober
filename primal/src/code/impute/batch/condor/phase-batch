@@ -1,0 +1,139 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Phasing program - batch mode.
+# 
+# Author: Oren E. Livne
+# Date:   25-SEP-2012
+#----------------------------------------------------------------
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+# Batch program home directory
+BATCH_HOME="${OBER}/code/impute/impute/batch"
+
+function read_input_args
+{
+	#%%%%%%%%%%%%%%%%%%%%%%%%
+        # Default argument values
+	#%%%%%%%%%%%%%%%%%%%%%%%%
+	# Output directory
+	out_dir="out"
+	# Path to python executable
+	if [ "x${PYTHON_EXEC}" != "x" ]; then
+	    python_exec="${PYTHON_EXEC}"
+	else
+		python_exec=`which python`
+	fi
+    # Printout level
+    verbose=false
+    # Fill missing genotypes in post-processing
+    impute=0
+    # Start chromosome index to process 
+    start_chr=1
+    # End chromosome index to process 
+    stop_chr=22
+    # Phasing stage to run (0=all)
+	stage=0
+	# Gaixin output directory - map.py flag
+	out_gxn="NONE"
+	
+    # Read input arguments
+    while getopts "hvf:o:p:s:e:t:g:" optionName; do
+	case "$optionName" in
+	    o) out_dir="$OPTARG";;
+	    p) python_exec="$OPTARG";;
+	    s) start_chr="$OPTARG";;
+	    e) stop_chr="$OPTARG";;
+	    t) stage="$OPTARG";;
+	    g) out_gxn="$OPTARG";;
+	    f) impute="$OPTARG";;
+	    v) verbose=true;;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+	# Get mandatory arguments
+	shift $(( $OPTIND -1 ))
+	if [[ $# -ne 3 ]]; then
+  		echo "Fan file, input file, part size must be specified."
+		print_type_for_help
+	fi
+	fan_file="$1"
+	input_path="$2"
+	input_dir=`dirname "$2"`
+	input_file=`basename "$2"`
+	part_size="$3"
+	
+	# Argument validation
+	# Convert out_dir from potentially relative to absolute path
+	out_dir=`readlink -f \`dirname ${out_dir}\``/`basename ${out_dir}`
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} [flags] <fan-file> <input-file> <part-size>"
+    echo -e ""
+    echo -e "Run the phasing program on the PLINK binary data set 'input-file'. The data set is"
+    echo -e "partitioned by chromosome, and then by part of size 'part-size' [Mb]."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-o out-dir\tOutput directory. Default: ${out_dir}"
+    echo -e "\t-p python-exec \tPath to the desired python executable. Default: ${python_exec}"
+    echo -e "\t-s start-chr\tStart processing from this chromosome index. Default: ${start_chr}"
+    echo -e "\t-e stop-chr\tStart processing at this chromosome index. Default: ${stop_chr}"
+    echo -e "\t-f\tImpute stages to run (0: none; 1: impute; 2: impute and fill missing genotypes randomly from estimated frequencies. Default: ${impute}"
+    echo -e "\t-t stage\tRun only a specific phasing stage (if positive) or entire pipeline (if 0). Default: ${stage}"
+    echo -e "\t-v\t\tVerbose mode."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+# Set up environment
+mkdir -p ${out_dir}
+part_count=`mktemp /tmp/phaseXXXX` || {
+	echo 'cannot create a temporary file' >&2
+    exit 1
+}
+
+# Delete the "done file" that tells observers the condor pipeline is done
+done_file="${out_dir}/result/${input_file%%.*}_phased"
+if [ -f ${done_file} ]; then
+	echo "Removing done file ${done_file}" 
+    rm -f ${done_file}    
+fi
+
+part_count="${out_dir}/part_count.part"
+
+# Fix cygwin paths
+CONDOR_FAN="condor_fan.py"
+if [ $OSTYPE == 'cygwin' ]; then
+	CONDOR_FAN=`which $CONDOR_FAN`
+	CONDOR_FAN="${python_exec} `cygpath -w ${CONDOR_FAN}`"
+fi
+
+# Generate Condor input files
+${BATCH_HOME}/split.py -s ${input_path} ${part_size} -o ${part_count} 2>&1 > /dev/null
+#cat ${part_count}
+
+${CONDOR_FAN} -s ${start_chr} -e ${stop_chr} ${fan_file} ${python_exec} ${input_dir} ${input_file} ${out_dir} ${part_count} ${start_chr} $(( stop_chr+1 )) ${impute} ${stage} "${out_gxn}" "${BATCH_HOME}"
+
+# Submit to condor
+condor_submit_dag ${out_dir}/pipeline.dag
+
+# Clean up
+#rm -rf ${part_count}

@@ -1,0 +1,24 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# pipe input into expect.
+# 
+# Author: Matt Greenway and Oren E. Livne
+# Date: 21-MAR-2012
+#----------------------------------------------------------------
+
+# Cat standard input into a temp file
+file=`tempfile`
+echo "#!`which expect`" >> $file
+while read line; do
+  echo $line >> $file
+done #< /dev/stdin
+
+cat $file
+
+# Run expect on the file
+#expect $file
+chmod +x $file
+$file
+
+# Clean up
+#rm -f $file

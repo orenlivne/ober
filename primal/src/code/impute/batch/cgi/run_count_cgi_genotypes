@@ -1,0 +1,27 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# Generate call rate statistics - Beagle jobs.
+#
+# Author: Oren E. Livne
+# Date:   01-DEC-2012
+#--------------------------------------------------------------------
+code="$OBER/code/impute/batch/cgi"
+out="$OBER_OUT/impute_cgi/final/count"
+
+mkdir -p ${out}
+
+variant_type="snp"
+phasing_rate="0"
+
+suffix="${variant_type}-${phasing_rate}"
+vars="variant_type=${variant_type},phasing_rate=${phasing_rate}"
+
+# All samples call counts
+qsub -v target=${out}/count-all-${suffix}.txt,${vars} $code/count_cgi_genotypes.pbs
+
+# Count only samples selected for sufficiently-high call rate
+cp $code/cgi-98.* ${out}
+qsub -v target=${out}/count-selected-${suffix}.txt,${vars},selected_ids=${out}/selected.id $code/count_cgi_genotypes.pbs
+
+# Phasing rates
+qsub -v target=${out}/count-cgi-98.txt-${suffix},${vars},selected_ids=${out}/cgi-98.index $code/count_cgi_genotypes.pbs

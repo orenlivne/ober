@@ -1,0 +1,43 @@
+#----------------------------------------------------------
+# PBS submission configuration example
+#----------------------------------------------------------
+# Separate field values by commas.
+# Reserved variables:
+# * _node - node number
+
+[DEFAULT]
+# Start all parameter names in this section with underscores
+_home=/home/olivne
+_ober=%(_home)s/ober
+# Node RAMDISK location or fast scratch space 
+_mem=/home/olivne/scratch
+#/scrarch
+
+[pbs]
+# Name of the entire job
+job_name=ibd-segments
+# Output directory
+out_dir=out
+# Queue to submit to
+queue=batch
+# Job time (00:30:00 means 30 minutes. Queues may have restrictions.)
+walltime=02:00:00
+# How many nodes to use
+nodes=200
+# How many cores to use in each node (1..24) 
+instances_per_node=1
+
+[env]
+
+[param]
+selected=0:1415
+sample=0:1415
+_predicate=<=
+
+[exec]
+data=%(_ober)s/out/phasing/%(_chrom)s/hutt
+out=%(_ober)s/out/ibd_segments/%(_chrom)s
+# Placeholders that can be used in the rest of this section
+executable = python %(_ober)s/code/impute/bin/ibd_segments.py %(_mem)s/hutt.phased.npz %(_mem)s/hutt.kinship 1>%(out)s/node-%(_node)s/segments-%(_node)s.out
+transfer_input_files = %(data)s/chr22/hutt.phased.npz, %(data)s/hutt.kinship
+transfer_output_files =

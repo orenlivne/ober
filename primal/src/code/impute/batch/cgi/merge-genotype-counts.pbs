@@ -1,0 +1,29 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Create genomic (global) count files from chromosomal genotype
+# count results.
+#
+# Input parameters:
+# start_chr - chromosome number to start processing at
+# stop_chr - chromosome number to stop processing at (inclusive)
+#-----------------------------------------------------------------
+#PBS -l walltime=00:30:00
+#PBS -l mppwidth=24
+#PBS -N merge-genotype-counts
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+# Input parameters that are hard-coded for now
+out_dir="$OBER_OUT/impute_cgi/count2"
+genotype_thresholds="0.98 1.00"
+phasing_thresholds="0.95"
+
+aprun -n 1 -N 1 -d 24 ${OBER_CODE}/impute/batch/cgi/merge-genotype-counts ${out_dir} "${genotype_thresholds}" "${phasing_thresholds}" ${start_chr} ${stop_chr}

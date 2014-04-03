@@ -1,0 +1,29 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Look for variants by chromosome and bp range in CGI
+# genotype files.
+# 
+# Author: Oren E. Livne
+# Date:   08-FEB-2013
+#----------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+
+if [ $# -ne 2 ]; then
+  echo "Usage: ${PROGNAME} <chrom> <start_bp[-stop_bp]>"
+  echo ""
+  echo "Look for variants by chromosome and bp range in the CGI genotype files."
+  echo "If a stop position is not specified, it is assumed to be equal to"
+  echo "the start position."
+  exit $E_BADARGS
+fi
+
+chrom="$1"
+range="$2"
+if [[ ! ( "$2" =~ .*-.*) ]]; then
+   range="${range}-${range}"
+fi
+
+tabix ${OBER_OUT}/impute_cgi/genotypes/genotypes.chr${chrom}.tsv.gz chr${chrom}:${range}

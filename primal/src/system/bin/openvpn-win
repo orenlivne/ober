@@ -1,0 +1,9 @@
+#!/bin/bash
+#-----------------------------------------------------------
+# Open UIC VPN connection on Windows from the command line.
+# Will prompt for a password.
+#-----------------------------------------------------------
+(sleep 5 ; keep-tunnel-open) &
+cd c:
+cd Program\ Files\ \(x86\)/OpenVPN/config/
+../bin/openvpn.exe --config uic-openvpn-vlan310-nlivne2.ovpn

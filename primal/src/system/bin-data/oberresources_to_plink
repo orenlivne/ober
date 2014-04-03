@@ -1,0 +1,15 @@
+# Extract all SNPs typed in a certain platform from the ober resources
+# 500K data set, and convert them to a PLINK tped format.
+#
+# Include autosomal SNPS only for now.
+
+platform="RSnG"
+genotype_tgz="/home/oren/ober/out/requests/rsg/genoByChr.tar.gz"
+map_dir="/home/oren/ober/out/requests/rsg/map"
+
+# Include autosomal SNPS only for now.
+snps=`grep ${platform} ${map_dir}/chr*.map | cut -f 1 | awk -F/ '{print $NF}' | sed -e 's/chr//' | sed -e 's/.map//' | egrep -v "X"`
+
+for i in ${snps}; do
+    echo $i
+done

@@ -1,0 +1,8 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# For Cygwin - display my public IP.
+# 
+# Author: Oren E. Livne
+# Date  : 16-AUG-2012
+#----------------------------------------------------------------
+curl -s myip.dk | grep -i 'IP Address' | egrep -o '[0-9.]+\.[0-9]+'

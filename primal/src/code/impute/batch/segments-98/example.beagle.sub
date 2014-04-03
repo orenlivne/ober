@@ -1,0 +1,49 @@
+#----------------------------------------------------------
+# PBS submission configuration example
+#----------------------------------------------------------
+# Separate field values by commas.
+# Reserved variables:
+# * _mem - node RAMDISK location
+# * _node - node number
+# * _param - textual representation of parameter configuration in the parameterized run
+
+[DEFAULT]
+# Start all parameter names in this section with underscores
+_home=/lustre/beagle/ober/users/oren
+_ober=%(_home)s/ober
+# Node RAMDISK location or fast scratch space
+_mem=/dev/shm
+
+[pbs]
+# Name of the entire job
+job_name=ibd_segments
+# Output directory
+out_dir=out
+# Queue to submit to
+queue=batch
+# Job time (00:30:00 means 30 minutes. Queues may have restrictions.)
+walltime=00:05:00
+# Beagle project ID to charge jobs to
+project=CI-MCB000155
+# How many nodes to use
+nodes=40
+# How many cores to use in each node (1..24) 
+instances_per_node=21
+
+[env]
+# Name of desired Python environment modules to be loaded 
+modules=python/2.7.3-vanilla
+code=%(_ober)s/code
+_python_path=%(code)s/db-gene:%(code)s/lethal:%(code)s/famplot:%(code)s/network:%(code)s/impute:%(code)s/util
+
+[param]
+selected=0:4
+sample=0:1415
+_predicate=<=
+
+[exec]
+data=%(_home)s/out/phasing
+# Placeholders that can be used in the rest of this section
+executable = python %(_ober)s/code/impute/bin/ibd_segments.py -v 0 %(_mem)s/hutt.phased.npz %(_mem)s/hutt.kinship 1>%(_out)s/node-%(_node)s/segments-%(_param)s.out
+transfer_input_files = %(data)s/%(_chrom)s/hutt.phased.npz, %(data)s/hutt.kinship
+transfer_output_files =

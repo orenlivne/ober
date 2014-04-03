@@ -1,0 +1,109 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Convert the RSnG Illumina raw data to plink format that matches
+# the CGI data. Contains the entire conversion and QC pipeline.
+# The result of this script can be used for imputation validation.
+# 
+# Author: Oren E. Livne
+# Date:   22-MAY-2013
+#----------------------------------------------------------------
+
+# TODO: add PLINK flags to input arguments/parseopt
+rsng_dir="$OBER_OUT/requests/rsng"
+out_dir="$rsng_dir/plink"
+affy_pedigree="$OBER_OUT/phasing/hutt.fam"
+affy_pedigree_tfam="$OBER/testdata/pedigree/hutterites.tfam" 
+plink="plink --noweb --nonfounders --keep-allele-order"
+raw_data_dir="$rsng_dir/raw_data/Data_Clean_HighQuality_only/"
+
+mkdir -p $out_dir
+cd $out_dir
+
+# Convert Illumina raw data to plink (hg17). Intersect samples with the Affymetrix samples.
+echo "Convert Illumina raw data to plink (hg17)"
+illumina_to_plink $raw_data_dir/Map/Ober_RSnG_map.csv $raw_data_dir/Ober_RSnG_Clean_Final.csv $affy_pedigree $out_dir/rsng.raw false -1.0
+
+# Filter SNPs:
+# - Autosomal chromosomes only.
+# - Remove AT-CG SNPs whose coding may be ambiguous when merging with the CGI data below.
+# - Remove SNPs with MAF=0.
+# - Remove SNPs in the exclusion list compiled under Carole's and Dan's guidelines.
+# We now have 873 samples, 69 of which are also in CGI.
+echo "Filter SNPs; lift over coordinates hg17 -> hg19"
+awk '{ if (($1 <= 22) && (!((($5 == "A") && ($6 == "T")) || (($5 == "T") && ($6 == "A")) || (($5 == "C") && ($6 == "G")) || (($5 == "G") && ($6 == "C"))))) { print $0; } }' rsng.raw.bim > rsng.filtered.bim
+cut -f 2 rsng.filtered.bim > rsng.filtered.snplist
+$plink --bfile rsng.raw --out rsng.raw --make-bed --extract rsng.filtered.snplist --maf 0.0001 >& /dev/null
+$plink --bfile rsng.raw --out rsng.raw --make-bed --extract $raw_data_dir/snps.include >& /dev/null
+#--exclude $raw_data_dir/snps.exclude
+
+# Update SNP coordinates to hg19
+echo "Filter SNPs; lift over coordinates hg17 -> hg19"
+awk '{printf "chr%d %d %d\n", $1, $4, $4+1}' rsng.raw.bim > rsng.raw.snpcoord
+liftOver rsng.raw.snpcoord $LIFTOVER_HOME/hg17ToHg19.over.chain rsng.hg19.snplist rsng.hg19.err
+paste <(awk '{print $2}' rsng.raw.bim) <(awk '{print $2}' rsng.hg19.snplist) | tr '\t' ' ' > rsng.hg19.map
+$plink --bfile rsng.raw --out rsng.hg19 --make-bed --update-map rsng.hg19.map >& /dev/null
+$plink --bfile rsng.hg19 --out rsng.hg19 --write-snplist >& /dev/null
+
+# Extract CGI genotype data at the RS&G snps. This includes all 98 CGI samples:
+# 69 in RS&G and 29 not in RS&G, which we can append to the RS&G set.
+echo "Extract CGI genotype data at the RS&G snps"
+awk '{printf "chr%d:%d\n", $1, $4;}' rsng.hg19.bim | run_extract_imputed.py -n -s -l letter -o tped -f full $OBER_OUT/impute_cgi/genotypes/genotypes -t genotype -y snp - rsng.cgi.tped
+# Remove dbsnpXXX. prefix from SNP names
+sed -e 's/dbsnp\.[0-9]\+\://g' rsng.cgi.tped > tmp && mv tmp rsng.cgi.tped
+
+# Extract sub-pedigree of 98 CGI samples. A rather inefficient use (multiple awks)
+# yet that preserves sample ordering
+echo "Extract CGI sub-pedigree"
+for line in `sed '1d' $OBER_DATA/cgi/README.assembly_sample_subject.csv | cut -d, -f 3`; do
+    awk -v line=$line '$2 == line' $affy_pedigree
+done > rsng.cgi.tfam
+
+# Reconcile SNP lists in Illumina RS&G, CGI RS&G data sets
+# (=restrict Illumina set to CGI SNPs) by bp position
+echo "Reconcile SNP lists"
+join -j 1 <(awk '{printf "%d%09d %d %s %d %d\n", $1, $4, $1, $2, $3, $4;}' rsng.hg19.bim | sort -k 1) <(awk '{printf "%d%09d %d %s %d %d\n", $1, $4, $1, $2, $3, $4;}' rsng.cgi.tped | sort -k 1) | awk '{print $3}' > rsng.snplist
+$plink --bfile rsng.hg19 --out rsng.hg19 --extract rsng.snplist --recode --transpose >& /dev/null
+
+# Reconcile SNP names in both data sets
+echo "Reconcile SNP names"
+for t in hg19 cgi; do
+    $plink --tfile rsng.$t --out rsng.$t --recode >& /dev/null
+done
+cp rsng.hg19.map rsng.cgi.map
+
+# Find sample intersection of the RS&G and CGI data sets
+for t in hg19 cgi; do
+    $plink --file rsng.$t --out rsng.$t --recode --transpose >& /dev/null
+done
+join --check-order -j 2 <(sort -k 2,2 rsng.hg19.tfam) <(sort -k 2,2 rsng.cgi.tfam) | awk '{print $2, $1}' > common-samples.tfam
+
+# Merge Illumina RS&G, CGI RS&G. PLINK is supposed to automatically reconcile strand flipping,
+# but this doesn't work. Per Rachel's suggestion, do this iteratively: attempt to merge, get a list
+# of error snps, use those to flip CGI, then try to merge again.
+echo "Merge Illumina RS&G, CGI RS&G data sets"
+for t in hg19 cgi; do
+    $plink --tfile rsng.$t --out rsng.$t --make-bed >& /dev/null
+done
+$plink --file rsng.hg19 --merge rsng.cgi.ped rsng.cgi.map --recode --transpose --out rsng --merge-mode 2 >& /dev/null
+awk '{print $2}' rsng.missnp > rsng.snpstoflip
+$plink --file rsng.cgi --out rsng.cgi --flip rsng.snpstoflip --recode >& /dev/null
+rm rsng.missnp
+$plink --file rsng.hg19 --merge rsng.cgi.ped rsng.cgi.map --recode --transpose --out rsng --merge-mode 2 >& /dev/null
+
+# Report stats on SNPs with mismatches in allele coding between the two data sets
+if [ -f rsng.missnp ]; then
+    for r in `awk '{print $2}' rsng.missnp`; do
+	echo $r
+	$plink --file rsng.hg19 --out tmp.$r.rsng --recode-lgen --from $r --to $r >& /dev/null
+	$plink --file rsng.cgi  --out tmp.$r.cgi  --recode-lgen --from $r --to $r >& /dev/null
+	join --check-order -j 2 <(sort -k 2,2 tmp.$r.rsng.lgen) <(sort -k 2,2 tmp.$r.cgi.lgen) | awk '{printf "%-8d %s%s%s%s\n", $1, $4, $5, $8, $9}' | awk '{print $2}' | sort | uniq -c
+# | grep '1122\|2211' | awk -v r=$r '{ a=substr ($2, 1, 2); b=substr ($2, 3, 2); c=$1; if (c > 1) { printf "%s\n", r} }' | awk '{ if (NR == 2) { print "-->", $0; } }'
+	rm tmp.$r.*
+    done
+else
+    echo "No allele coding mismatches"
+fi
+
+# Clean temporary files
+echo "Clean up"
+rm -f rsng.raw* rsng.filtered.* rsng.hg19* rsng.cgi* rsng.nof rsng.snpstoflip rsng.snplist

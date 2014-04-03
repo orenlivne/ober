@@ -1,0 +1,21 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Merge all imputed plink files into a master bed file.
+#-----------------------------------------------------------------
+#PBS -l walltime=06:00:00
+#PBS -l mppwidth=24
+#PBS -N ld_prune_qc
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+DIR="${OBER_OUT}/impute_cgi/data-sets"
+
+aprun -n 1 -N 1 -d 24 bash -x ${OBER_CODE}/impute/batch/cgi/ld-prune-qc ${DIR}/qc/qc ${DIR}/ld-pruned/qc.pruned ${start_chr} ${stop_chr} ${num_jobs}

@@ -1,0 +1,246 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# Main CGI imputation pipeline on Beagle.
+#
+# Author: Oren E. Livne
+# Date:   05-APR-2013
+#--------------------------------------------------------------------
+
+# Constants
+DARGS=65
+PROGNAME=`basename $0`
+SRC_DIR="${OBER_CODE}/impute/batch/cgi"
+
+#=======================================
+# Read input parameters
+#=======================================
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Start chromosome index to process 
+    start_chr=1
+    # End chromosome index to process 
+    stop_chr=22
+    # Clean output dir first
+    do_clean=false
+    # Generate pipeline files
+    do_create=false
+    # Run pipeline
+    do_run=false
+    # Run imputation stage
+    do_impute=false
+    # Dependency ID, if pipeline should start upon another job's success
+    dependency_id=""
+    # Target architecture (CRI/Beagle Cluster)
+    arch="beagle"
+	
+    # Read input arguments
+    while getopts "ihcgra:s:e:d:" optionName; do
+	case "$optionName" in
+	    a) arch="$OPTARG";;
+	    s) start_chr="$OPTARG";;
+	    e) stop_chr="$OPTARG";;
+	    c) do_clean=true;;
+	    g) do_create=true;;
+	    r) do_run=true;;
+	    i) do_impute=true;;
+	    d) dependency_id="$OPTARG";;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 1 ]]; then
+  	echo "Work dir must be specified."
+	print_type_for_help
+    fi
+    work_dir="$1"
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} [flags] <work-dir>"
+    echo -e ""
+    echo -e "Run CGI imputation on the Hutterites data set. Place submission files under work-dir."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-a arch\t\tTarget architecture. Default: ${arch}"
+    echo -e "\t-s start-chr\tStart processing from this chromosome index. Default: ${start_chr}"
+    echo -e "\t-e stop-chr\tStop processing at this chromosome index. Default: ${stop_chr}"
+    echo -e "\t-c\t\tClean the output directory first."
+    echo -e "\t-g\t\tGenerate the pipeline."
+    echo -e "\t-r\t\tSpawn jobs. If not set, submission files are generated only."
+    echo -e "\t-i\t\tRun the imputation stage. If not, just postprocessing is run."
+    echo -e "\t-d job-id\tDependency job id, if pipeline should start upon another job's success."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#=======================================
+# Pipeline Construction
+#=======================================
+# Submit a job whose name is A that depends on a job ID B (if B="", no dependency).
+# Returns job A's ID.
+function submit_job
+{
+    job="$1" 			# Name of dependent job to be submitted
+    is_dependency_array="$2" 	# Is dependency job an array or not
+    dependency="$3" 	        # Dependency's ID (optional)
+    other_flags="$4"            # Additional flags to be passed to qsub (optional)
+	
+    QSUB_FLAGS="$other_flags"
+    if [[ x"$dependency" != "x" ]]; then
+	if [[ ( ! $is_dependency_array ) || ( ${arch} == "beagle" ) ]]; then
+	    status="afterok"
+	else
+	    status="afterokarray"
+	fi
+	QSUB_FLAGS="${QSUB_FLAGS} -W depend=${status}:${dependency}"
+    fi
+    job_id=`qsub ${QSUB_FLAGS} ${job}/${job}.pbs`
+    echo "${job_id}" > ${job}/${job}.id
+    echo "${job_id}"
+# Testing
+#    echo "'$job' '$is_dependency_array' '$dependency'" >> ${work_dir}/chr${chrom}/log
+#    echo "qsub ${QSUB_FLAGS} ${job}/${job}.pbs" >> ${work_dir}/chr${chrom}/log
+#    echo "${job}_id"
+}
+
+# Create submission script for imputation post-processing.
+function create_job_impute_cgi_postprocess
+{
+    work="$1"
+    final_out="$2"
+    chrom="$3"
+    file="$4"
+
+    cat <<EOF > $file
+#!/bin/bash
+#PBS -l walltime=05:00:00
+#PBS -l mppwidth=24
+#PBS -N impute_cgi_postprocess
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd \$PBS_O_WORKDIR
+
+aprun -n 1 -N 1 -d 1 ${SRC_DIR}/impute_cgi_postprocess ${work} ${final_out} ${chrom}
+EOF
+}
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+config_file="${SRC_DIR}/impute_cgi.${arch}.sub"
+final_out="${OBER_OUT}/impute_cgi/imputed-override"
+
+# Allocate different resources for different chromosomes
+all_postprocess="" # Job IDs
+for (( chrom=${start_chr}; chrom<=${stop_chr}; chrom++ )); do
+    echo "Pipeline, chromosome ${chrom}"
+    #---------------------------------------------------
+    # Set up PBD scripts, directories
+    #---------------------------------------------------
+    out="${work_dir}/chr$chrom"
+    echo "Output dir: ${out}"
+        
+    if $do_clean; then
+	echo "Cleaning output directory"
+        rm -rf ${out} >& /dev/null
+    fi
+    mkdir -p ${out}
+	
+    #---------------------------------------------------
+    # Set chromosome parameters
+    #---------------------------------------------------
+    if (( $chrom <= 12 )); then
+	nodes="22"
+	instances_per_node="20"
+	walltime="2:30:00"
+    elif (( $chrom <= 18 )); then
+	nodes="10"
+	instances_per_node="20"
+	walltime="4:00:00"
+    else
+	nodes="10"
+	instances_per_node="20"
+	walltime="1:15:00"
+    fi
+    printf "##### Chr %d: nodes=%d, cores/node=%d, walltime=%s\n" $chrom $nodes $instances_per_node $walltime
+
+    #---------------------------------------------------
+    # Create pipeline files
+    #---------------------------------------------------
+    if $do_create; then      
+	echo "Creating pipeline"
+	    
+	# Create submission script for imputation phase
+	job="impute_cgi"
+	echo "Creating imputation job files"
+	mkdir -p ${out}/${job}
+	pack_jobs.py -v -t ${arch} -p chrom=${chrom},out=${out}/${job},nodes=${nodes},instances_per_node=${instances_per_node},walltime=${walltime} ${config_file} ${out}/${job}
+
+	# Create submission script for post-processing phase
+	job="impute_cgi_postprocess"
+	echo "Creating post-processing job files"
+	mkdir -p ${out}/${job}
+	create_job_impute_cgi_postprocess ${work_dir} ${final_out} ${chrom} ${out}/${job}/${job}.pbs
+    fi
+
+    #---------------------------------------------------
+    # Run pipeline: spawn jobs in dependency order
+    #---------------------------------------------------
+    if $do_run; then      
+	echo "Running pipeline - submitting jobs"
+	cd / # To avoid stale NFS errors in the next command if output dir was deleted above
+	cd ${out}
+
+	# Impute
+	if $do_impute; then      
+	    echo "Running imputation"
+	    imputation=$(submit_job impute_cgi "" "${dependency_id}")
+	fi
+
+	# Merge individual imputation results into one; tabix-compress; count genotypes
+	echo "Running imputation post-process"
+	postprocess=$(submit_job impute_cgi_postprocess false "${imputation}")
+
+	all_postprocess=":${postprocess}${all_postprocess}"
+        # TODO: run affy validation here to compute selected.id, or assume it's available
+        # under $dir below as well and copy it over
+    fi
+done
+
+#---------------------------------------------------
+# Post-processing that combines all chromosomes
+#---------------------------------------------------
+if $do_run; then
+    # Convert job list to a colon-delimited list for qsub dependency parameter compliance
+    all_postprocess=`echo "${all_postprocess}" | sed 's/^\s//g' | sed 's/\s/:/g'`
+    qsub_flags="-v out_dir=${final_out},start_chr=${start_chr},stop_chr=${stop_chr} -W depend=afterok${all_postprocess}"
+    
+    echo "Running reduce jobs: qsub_flags=${qsub_flags}"
+    # Convert to PLINK; depends on finishing all chromosome jobs above
+    qsub ${qsub_flags} ${SRC_DIR}/cgi2plink.pbs
+    
+    # Merge to global (genomic) count files
+    qsub ${qsub_flags} ${SRC_DIR}/merge-genotype-counts.pbs
+fi

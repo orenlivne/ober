@@ -1,0 +1,151 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Convert a Master Var File (VCF; e.g., of the Hutterite exome
+# sequence data) to Complete Genomics, Inc. (CGI) TSV format.
+#
+# - Supports only autosomal SNPs for now.
+# - Assumes VCF coordinates are hg18. TODO: add a flag with build
+# number to make this program more general.
+# 
+# Author: Oren E. Livne
+# Date:   24-MAR-2014
+#----------------------------------------------------------------
+
+# Constants
+DARGS=65
+PROGNAME=`basename $0`
+cgi_id="${OBER_CODE}/impute/batch/cgi/cgi-98.id" # Location of CGI sample ID list
+cgi_id_mapping="${OBER_OUT}/impute_cgi/genotypes/README.assembly_sample_subject.csv"
+
+#=======================================
+# Read input parameters
+#=======================================
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Base-pair coordinate build of exome VCF data
+    build="hg18"
+    # Number of parallel jobs to run
+    num_jobs="1"
+
+    # Read input arguments
+    while getopts "hb:j:" optionName; do
+	case "$optionName" in
+	    b) build="$OPTARG";;
+	    j) num_jobs="$OPTARG";;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+	esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 1 ]]; then
+	echo "Input file name is required."
+	print_type_for_help
+    fi
+    in="$1" # Input file name
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} [flags] <file.vcf>"
+    echo -e ""
+    echo -e "Convert VCF to CGI (with hg19 coordinates) format."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-b build\tGenetic build of VCF file (hg17|hg18|hg19). Default: ${build}"
+    echo -e "\t-j num_jobs\tNumber of parallel jobs to run. Default: ${num_jobs}"
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit ${E_BADARGS}
+}
+
+#=======================================
+# Business Logic
+#=======================================
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+# Temporary file names
+temp="/tmp/${PROGNAME}" # `mktemp -d`
+mkdir -p ${temp}
+data="${temp}/data"
+new_bp="${temp}/new-bp"
+data_new_bp="${temp}/data-new-bp"
+data_combined="${temp}/data-combined"
+
+# Generate the union of CGI and exome sample FINDIVs. Enumerating first CGI samples, then exome,
+# save the 1-based indices of the samples in the union.
+nl ${cgi_id} <(grep -m 1 "#CHROM" ${in} | cut -f 10- | sed 's/\s*$//g' | tr '\t' '\n') | awk '{ if (x[$2]++ == 0) print $1, $2; }' > ${temp}/union
+awk '{print $1}' ${temp}/union > ${temp}/union.index
+awk '{print $2}' ${temp}/union > ${temp}/union.id
+
+# Since column ordering may vary from one VCF file to another, find the column
+# number of the Genotype Quality (GQ) field within a genotype call. Asssuming
+# it's the same throughout the file.
+gq_column=`grep "GQ" ${in} | grep -m 1 ":" | cut -f 9 | tr ':' '\n' | nl | grep GQ | awk '{print $1}'`
+
+# Remove header lines, non-autosomal from VCF file. Replace "chrXXX" by "XXX".
+# Remove calls with phred score < 30.
+num_header_lines=`nl ${in} | grep -m 1 "#CHROM" | awk '{print $1}'`
+
+if [ ! -f ${data_new_bp} ]; then
+sed "1,${num_header_lines}d" ${in} | \
+    awk -v gq_column=${gq_column},threshold=30 '\
+    BEGIN { g["0/0"] = "00"; g["0/1"] = "01"; g["1/1"] = "11"; g["./."] = "NN"; } \
+    { \
+      chrom=int(substr($1, 4, length($1)-3)); \
+      if ((chrom >= 1) && (chrom <= 22)) \
+      { \
+        printf "%s\t%s\t%s\t%s\t%s", chrom, $2, $3, $4, $5; \
+        for (i = 10; i <= NF; i++) \
+        { \
+          split($i,a,":"); \
+          if (a[gq_column] < threshold) call="NN"; else call=g[a[1]]; printf "\t%s", call; \
+        } \
+        printf "\n"; \
+      } \
+    }' > ${data}
+
+# Convert coordinate to build 37 (hg19). Uses the python pyliftover library.
+paste ${data} <(awk '{print $1, $2}' ${data} | lift_over.py ${build} hg19) | awk '{printf "%s\t%s", $1, $NF; for (i = 3; i <= NF-1; i++) printf "\t%s", $i; printf "\n"; }' > ${data_new_bp}
+fi
+
+if [ ! -f ${data_combined} ]; then
+# For each exome variant whose position exists in hg19 (bp != "-"), look it up in the CGI
+# data. If it is found, output the genotypes in the union of the CGI and exome sample sets.
+num_wgs=`wc -l ${cgi_id} | awk '{print $1}'`
+( while read line; do
+    chrom=`echo ${line} | awk '{print $1}'`
+    bp=`echo ${line} | awk '{print $2}'`
+    cgi_line=`gtabix ${chrom} ${bp}`
+    if [ -n "${cgi_line}" ]; then
+	paste <(echo ${cgi_line}) <(echo ${line}) | awk -v num_wgs=${num_wgs} 'BEGIN { f["00"]="11"; f["01"]="01"; f["11"]="00"; f["NN"]="NN"; } { printf "%s", $1; for (i = 2; i <= num_wgs+8; i++) printf "\t%s", $i; if ($6 == $(num_wgs+12)) { for (i = num_wgs+14; i <= NF; i++) printf "\t%s", $i; } else { for (i=num_wgs+14; i <= NF; i++) printf "\t%s", f[$i];} printf "\n"; }' | awk -v indices="`cat ${temp}/union.index | tr '\n' ',' | sed -e 's/,$//'`" 'BEGIN { cnt = split(indices,a,","); } { printf "%s", $1; for (i = 2; i <= 8; i++) printf "\t%s", $i; for (j = 1; j <= cnt; j++) { printf "\t%s", $(a[j]+8); } printf "\n"; }'
+    fi
+done < ${data_new_bp} ) > ${data_combined}
+fi
+
+# Impute from the union of the sample to all Affy-genotyped Hutterites. Run chromosomes separately
+# (because this is how run_chr_impute_cgi.py works). Could run them in parallel.
+for chrom in `seq 1 22`; do
+    echo "Chromosome ${chrom}"
+    awk -v chrom="chr${chrom}" '$2 == chrom' ${data_combined} > ${temp}/data-chr${chrom}
+    run_chr_impute_cgi.py -i ${cgi_id_mapping} -j -c ${chrom} ${temp}/data-chr${chrom} ${temp}/union.id ${OBER_OUT}/phasing/chr${chrom}/hutt.phased.npz ${OBER_OUT}/index_segments > ${temp}/imputed-chr${chrom}
+done
+
+# Combine chromosomal results into final imputed file
+cat `( for chrom in \`seq 1 22\`; do echo ${temp}/imputed-chr${chrom}; done ) | paste -sd' '`
+
+# Clean up
+#rm -rf ${temp}

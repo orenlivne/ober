@@ -1,0 +1,28 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Count genotypes in an imputed CGI file of a single chromosome.
+# Input arguments: 
+# imputed_prefix (imputed data file prefix)
+# out_dir (counts)
+# chrom (chromosome #)
+#-----------------------------------------------------------------
+#PBS -l walltime=02:45:00
+#PBS -l mppwidth=72
+#PBS -N count_genotypes
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+# Main script
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+#imputed_prefix="${OBER_OUT}/impute_cgi/imputed-override/imputed_cgi"
+#out_dir="${OBER_OUT}/impute_cgi/count"
+#chrom=22
+
+aprun -n 1 -N 1 -d 24 ${OBER_CODE}/impute/batch/cgi/count-genotypes-all ${chrom} ${chrom} "${imputed_prefix}" "${out_dir}"

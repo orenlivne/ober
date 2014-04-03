@@ -1,0 +1,97 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Split an IBD segment file into regions.
+#
+# Author: Oren E. Livne
+# Date:   17-JUN-2013
+#----------------------------------------------------------------
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # #Digits in node directory names
+    dir_prefix_size=""
+    jobs="3"
+
+    # Read input arguments
+    while getopts "ha:b:j:" optionName; do
+	case "$optionName" in
+	    a) dir_prefix_size="$OPTARG";;
+	    b) part_prefix_size="$OPTARG";;
+	    j) jobs="$OPTARG";;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+	esac
+    done
+    
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 8 ]]; then
+  	echo "8 mandatory args expected."
+	print_type_for_help
+    fi
+    chrom=`echo "$1" | sed -e 's/chr//g'`
+    file="$2"
+    dir_prefix="$3"
+    dir_suffix="$4"
+    part_prefix="$5"
+    nodes="$6"
+    instances_per_node="$7"
+    region_size="$8"
+
+    (( parts = nodes * instances_per_node ))
+    if [[ "x${dir_prefix_size}" == "x" ]]; then
+	dir_prefix_size=$(prefix_size ${nodes})
+    fi
+    if [[ "x${part_prefix_size}" == "x" ]]; then
+	part_prefix_size=$(prefix_size ${parts})
+    fi
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} <chrom> <file> <dir-prefix> <dir-suffix> <part-prefix> <nodes> <instances_per_node> <region_size>"
+    echo -e ""
+    echo -e "Split a file into roughly equal chunks without breaking lines."
+    echo -e "nodes = #directories. instances_per_node=#parts per directory."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-a dir-suffix-len\tSuffix length to use for node directories."
+    echo -e "\t-b part-suffix-len\tSuffix length to use for part files."
+    echo -e "\t-j jobs\tNumber of splitting jobs to spawn in parallel."
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit $E_BADARGS
+}
+
+#=======================================
+# Segment Splitting
+#=======================================
+function prefix_size
+{
+    echo "$1" | python -c "import sys, math; print int(math.ceil(math.log10(float(sys.stdin.readlines()[0]))))"
+}
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+snps=`wc -l ${OBER_OUT}/phasing/chr${chrom}/hutt.tped | awk '{print $1}'`
+
+# Split the segment file into parts (segment file + region list file per part)
+DO_PART="$OBER_CODE/impute/batch/index_segments/split-segments-do-part"
+seq 0 $(( parts-1 )) | parallel -j $jobs ${DO_PART} ${file} \"${dir_prefix}\" \"${dir_suffix}\" \"${part_prefix}\" \"${nodes}\" \"${instances_per_node}\" ${region_size} ${dir_prefix_size} ${part_prefix_size} ${snps}

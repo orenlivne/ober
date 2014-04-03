@@ -1,0 +1,31 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Filter genotypes
+#-----------------------------------------------------------------
+#PBS -l walltime=00:05:00
+#PBS -l mppwidth=528
+#PBS -N filter-cgi-genotypes
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+exec="${OBER_CODE}/impute/batch/cgi/filter-cgi-genotypes"
+in_prefix="$OBER_DATA/cgi/all.2012-09-20.testvar"
+out_dir="$OBER_OUT/impute_cgi/filtered-genotypes/${threshold}"
+mkdir -p ${out_dir}
+
+for chrom in `seq 1 22`; do
+    aprun -N 1 -d 24 -n 1 filter-cgi-genotypes.sh ${chrom} ${threshold} &
+done
+wait
+
+# Count #variants in each chromosome. This is performed on the mom node since it's not very intensive.
+cd ${out_dir}
+wc -l *.chr* | sed 's/\s*\([0-9]*\)\s.*\.chr\([0-9]*\)/\1 \2/g' | awk '{printf "%s %d\n", $2, $1}' > count-${threshold}.txt

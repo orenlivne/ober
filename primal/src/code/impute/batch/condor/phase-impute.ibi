@@ -1,0 +1,46 @@
+#!/bin/bash
+#----------------------------------------------------------------
+# Complete phasing and imputation pipeline for ibicluster.
+# Run on the entire genome.
+#
+# Argument $1 = data set under data directory
+# 
+# Author: Oren E. Livne
+# Date:   10-DEC-2012
+#----------------------------------------------------------------
+
+# Path to phasing & imputation runnable python scripts
+BIN_HOME="${OBER}/code/impute/bin"
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+if [ $# -ne 1 ]; then
+  echo "Usage: ${PROGNAME} <output-dir>"
+  echo ""
+  echo "Run the Complete phasing and imputation pipeline for the rare allele study."
+  exit $E_BADARGS
+fi
+out="$1"
+phasing_out_dir="${OBER_OUT}/hutt/${out}"
+done_file="${phasing_out_dir}/reduce/result/hutt_phaseddone"
+impute_dir="${OBER_DATA}/impute/rare"
+iplex_dir="${impute_dir}/to_livne_20121205"
+
+# Phasing, if not already done
+if [ ! -f ${done_file} ]; then
+    phase-batch.all.ibi -o ${phasing_out_dir} hutt/hutt
+fi
+
+# Wait until phasing is done. Observe whether a lock file exists in a while loop
+while [ ! -f ${done_file} ]; do
+#    phase-batch.all.ibi -m -o ${out} hutt/hutt
+#    echo "==================================================================================="
+    sleep 5
+done
+
+# Imputation
+python ${BIN_HOME}/run_impute_ibs.py ${phasing_out_dir} ${impute_dir}/rare.npz ${impute_dir}/imputed.${out}.npz
+
+# Generate imputation plots
+python ${BIN_HOME}/run_impute_stats.py ${phasing_out_dir} ${impute_dir}/imputed.${out}.npz ${iplex_dir} ${impute_dir}/imputed.${out}.

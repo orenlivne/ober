@@ -1,0 +1,19 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Count genotypes in an imputed CGI file of a each chromosome.
+#-----------------------------------------------------------------
+#PBS -l walltime=00:02:00
+#PBS -l mppwidth=24
+#PBS -N test
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+aprun -n 1 -N 1 -d 1 $OBER/system/torque/test.sh

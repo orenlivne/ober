@@ -1,0 +1,145 @@
+#!/bin/bash
+#------------------------------------------------------------------------
+# Run IMPUTE2 on a window (chunk of data of a chromosome) in parent-of-
+# origin mode.
+# 
+# Author: Oren E. Livne
+# Date:   20-FEB-2014
+#------------------------------------------------------------------------
+
+#=======================================
+# Constants
+#=======================================
+
+#=======================================
+# Read input parameters
+#=======================================
+DARGS=65
+PROGNAME=`basename $0`
+# Name of impute2 executable
+IMPUTE2_EXEC="impute2"
+
+function read_input_args
+{
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Default argument values
+    #%%%%%%%%%%%%%%%%%%%%%%%%
+    # Threshold for IMPUTE2 probabilities to be considered as called genotypes
+    threshold="0.99"
+    # Input phased or unphased data into IMPUTE2?
+    phased=true
+
+    # Read input arguments
+    while getopts "ht:" optionName; do
+	case "$optionName" in
+	    t) threshold="$OPTARG";;
+	    h) print_usage; exit 0;;
+	    [?]) print_type_for_help;;
+       esac
+    done
+
+    # Get mandatory arguments
+    shift $(( $OPTIND -1 ))
+    if [[ $# -ne 2 ]]; then
+  	echo "Chromosome and data set prefix must be specified."
+	print_type_for_help
+    fi
+
+    # Chromosome's output directory
+    chrom="$1"
+    n="$2"
+}
+
+function print_usage
+{
+    echo -e "Usage: ${PROGNAME} <chrom> <data-set-prefix>"
+    echo -e ""
+    echo -e "Run IMPUTE2 on chunk #part in node #node of chromosome chrom."
+    echo -e ""
+    echo -e "Optional flags:"
+    echo -e "\t-t threshold\t\tIMPUTE2 genotype calling threshold 0..1. Default: ${threshold}"
+}
+
+# Print help message and die
+function print_type_for_help
+{
+    echo "Type \"${PROGNAME} -h\" for help."
+    exit ${E_BADARGS}
+}
+
+#=======================================
+# Business Logic
+#=======================================
+
+#=======================================
+# Main Program
+#=======================================
+# Parse CLI arguments
+read_input_args "$@"
+
+# Create two dummy homozygous individual from each study haplotype
+# Common file prefix to this chunk
+#n="${out_home}/node-`printf \"%04d\" ${node}`/run_impute2-`printf \"%04d\" ${part}`"
+# Output file name prefix
+out="$n.impute2.po"
+awk '{ for (i = 1; i <= 5; i++) printf "%s ", $i; for (i = 6; i <= NF; i++) printf "%s %s ", $i, $i; printf "\n"; }' $n.study.haps > ${out}.haps
+
+# Run impute2 if output files don't exist
+# Flags common to all IMPUTE2 runs
+start_bp=`head -1 $n.study.haps | awk '{print $3}'`
+stop_bp=`tail -1 $n.study.haps | awk '{print $3}'`
+flags="-m $n.map -Ne 20000 -int ${start_bp} ${stop_bp} -o ${out} -allow_large_regions \
+       -l $n.legend -h $n.ref.haps -known_haps_g ${out}.haps -phase"
+# Run impute2 command
+if [ ! -f ${out}_info ]; then
+    ${IMPUTE2_EXEC} ${flags}
+fi
+
+# If the reference panel region is strictly larger than than the study panel region,
+# remove the first and/or last variants from impute2's output files so that they match our imputed file
+#tmp=`mktemp`
+tmp="${out}.truncated"
+tmp_info="${out}_info.truncated"
+cp ${out} ${tmp}
+cp ${out}_info ${tmp_info}
+
+# Remove first line from IMPUTE2 files if needed
+start_legend=`sed '1d' $n.legend | head -1 | awk '{print $2}'`
+start_imputed=`head -1 ${out} | awk '{print $3}'`
+if [[ ${start_imputed} -lt ${start_legend} ]]; then
+    for f in ${tmp} ${tmp_info}; do
+	sed '1d' ${f} > ${f}.tmp && mv ${f}.tmp ${f}
+    done
+fi
+
+# Remove last line from IMPUTE2 files if needed
+stop_legend=`tail -1 $n.legend | awk '{print $2}'`
+stop_imputed=`tail -1 ${out} | awk '{print $3}'`
+if [[ ${stop_imputed} -gt ${stop_legend} ]]; then
+    for f in ${tmp} ${tmp_info}; do
+	head -$(( `wc -l ${f} | awk '{print $1}'` - 1 )) ${f} > ${f}.tmp && mv ${f}.tmp ${f}
+    done
+fi
+
+# Threshold IMPUTE2 genotypes to have maximum probability >= t.
+# Convert to dosages for easier comparison with our pedigree-based imputation.
+# Only consider homozygous dosages (hence the j-step is 2 instead of 1: we loop over dosages j=0,2).
+# Since each allele was duplicated, we use half the dosage of each dummy individual.
+# These halves are combined to a TPED format: "11", "12", "21" or "22" for the ordered alleles.
+# Only haplotypes with BOTH alleles hard-called are considered. The rest are masked ("0 0" TPED values).
+# Filter variants to those for which we trust the LD-based method to have accuracy > 99%.
+paste -d' ' \
+    <(awk '{ print (($10 >= 30) && ($14 >= 0.9)) }' $n.stats.haps) \
+    <(awk -v t=${threshold} '{ \
+        for (i = 1; i <= 5; i++) printf "%s ", $i; \
+        for (i = 6; i <= NF; i += 6) { \
+          m1 = -1; for (j = 0; j < 3; j+= 2) { if (m < $(i  +j)) { m1 = $(i  +j); dose1 = j; } } \
+          m2 = -1; for (j = 0; j < 3; j+= 2) { if (m < $(i+3+j)) { m2 = $(i+3+j); dose2 = j; } } \
+          if ((m1 >= t) && (m2 >= t)) printf "%d %d ", dose1/2 + 1, dose2/2 + 1; else printf "0 0 "; \
+        } printf "\n"; }' ${tmp}) | \
+    awk -v chrom=${chrom} '{ \
+        if ($1) { \
+          printf "%d %s %d %d", chrom, ($2 == "---") ? $3 : $2, 0, $4; \
+          for (i = 7; i <= NF; i++) printf " %s", $i;  \
+          printf "\n"; \
+        } }' > ${out}.tped

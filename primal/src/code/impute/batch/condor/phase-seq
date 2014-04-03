@@ -1,0 +1,63 @@
+#!/bin/bash
+#--------------------------------------------------------------------
+# Sequential phasing run- main program
+#--------------------------------------------------------------------
+
+# Read input arguments
+DARGS=65
+PROGNAME=`basename $0`
+if [ $# -ne 2 ]; then
+  echo "Usage: ${PROGNAME} <plink-file-base-name> <part-size>"
+  echo ""
+  echo "Sequentially run the phasing program on the PLINK BED+FAM+BIM data set. Partition"
+  echo "chromosomes into parts of size part-size [Mb]."
+  exit $E_BADARGS
+fi
+input_file="$1"
+part_size="$2"
+
+# Set up environment
+if [ "x${PYTHON_EXEC}" == "x" ]; then
+    PYTHON_EXEC=`which python`
+fi
+echo "Using PYTHON_EXEC=${PYTHON_EXEC}"
+start_chr="21"
+stop_chr="22"
+stage="1"
+
+# Calculate part numbers of all chromosomes
+${PYTHON_EXEC} ./split.py -s ${input_file} ${part_size}
+
+# Parse part count into an associative array
+declare -A part_count
+while read line; do
+	tokens=(${line// / })
+	part_count[${tokens[0]}]=${tokens[1]}
+done < "${input_file}.part"
+
+# Split phase
+for (( c = start_chr; c <= stop_chr; c++ )); do
+	echo "Split, chromosome ${c}"
+	${PYTHON_EXEC} ./split.py -c ${c} ${input_file} ${part_size}
+done
+
+# Map phase
+for (( c = start_chr; c <= stop_chr; c++ )); do
+	num_parts=${part_count[$c]}
+	echo "Chromosome ${c}, ${num_parts} parts"
+	for (( p = 0; p < $num_parts; p++ )); do
+		echo "Map, chromosome ${c}, part ${p}"
+		${PYTHON_EXEC} ./map.py ${input_file}_chr${c}_part${p} ${input_file}.pdg.tfam ${input_file}_phased_chr${c}_part${p} -v -s ${stage}
+	done
+done
+
+# Reduce chr phase
+for (( c = start_chr; c <= stop_chr; c++ )); do
+	echo "Reduce, chromosome ${c}"
+	${PYTHON_EXEC} ./reduce.py ${input_file}_phased_chr${c} part ${num_parts} ${input_file}_phased_chr${c}
+done
+
+# Reduce phase
+echo "Reduce to final result"
+num_chr=$(($stop_chr - $start_chr + 1))
+${PYTHON_EXEC} ./reduce.py ${input_file}_phased chr ${num_chr} ${input_file}_phased -s ${start_chr}

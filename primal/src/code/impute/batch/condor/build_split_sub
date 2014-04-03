@@ -1,0 +1,2 @@
+chr=$1
+cat out/split_chr/split_chr.sub | sed "s/\$(chr)/${chr}/g" > split_chr${chr}.sub

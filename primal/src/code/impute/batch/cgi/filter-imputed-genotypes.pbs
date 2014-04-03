@@ -1,0 +1,29 @@
+#!/bin/bash
+#-----------------------------------------------------------------
+# Restrict imputed genotypes to the filtered variants obtained by
+# filter-cgi.genotypes.pbs.
+#
+# Input parameters:
+# threshold = CGI genotype rate threshold
+#-----------------------------------------------------------------
+#PBS -l walltime=00:30:00
+#PBS -l mppwidth=528
+#PBS -N filter-cgi-genotypes
+#PBS -q batch
+#PBS -A CI-MCB000155
+#PBS -j oe
+
+echo /opt/modules/default
+. /opt/modules/default/init/bash
+module swap PrgEnv-pgi PrgEnv-gnu
+module load python/2.7.3-vanilla
+module list 2>&1
+cd $PBS_O_WORKDIR
+
+out_dir="$OBER_OUT/impute_cgi/imputed/${threshold}"
+mkdir -p ${out_dir}
+
+for chrom in `seq 1 22`; do
+    aprun -N 1 -d 24 -n 1 filter-imputed-genotypes ${chrom} ${threshold} &
+done
+wait

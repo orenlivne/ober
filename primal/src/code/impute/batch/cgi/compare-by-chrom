@@ -1,0 +1,17 @@
+#!/bin/bash
+dirs="$OBER_OUT/impute_cgi/count $OBER_OUT/impute_cgi/count2"
+
+for dir in $dirs; do 
+    merge-genotype-counts $dir "0.98 1.00" "0.95" 1 22
+    cat $dir/total/count-report-all.txt 
+    echo "---"
+done
+
+for c in `seq 1 22`; do
+    echo "chrom $c"
+    echo "---"
+    for dir in $dirs; do 
+    	merge-genotype-counts $dir "0.98 1.00" "0.95" $c $c
+	cat $dir/total/count-report-all.txt ; echo "---"
+    done
+done
